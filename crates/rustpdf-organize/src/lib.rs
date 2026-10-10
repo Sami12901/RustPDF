@@ -1,0 +1,306 @@
+//! rustpdf-organize — Page tree operations: rotation, deletion, reordering, insertion, split, and merge.
+
+use lopdf::{Dictionary, Document as LopdfDoc, Object, ObjectId, Stream};
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum OrganizeError {
+    #[error("document must retain at least one page")]
+    CannotRemoveAllPages,
+    #[error("page index {0} out of bounds (document has {1} pages)")]
+    IndexOutOfBounds(usize, usize),
+    #[error("invalid rotation {0}: degrees must be a multiple of 90")]
+    InvalidRotation(i32),
+    #[error("lopdf error: {0}")]
+    Lopdf(#[from] lopdf::Error),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("combine error: {0}")]
+    CombineFailed(String),
+}
+
+/// Helper function to insert a page object into a document's Pages tree.
+pub fn insert_page_into_document(
+    doc: &mut LopdfDoc,
+    index: usize,
+    page_id: ObjectId,
+) -> Result<(), OrganizeError> {
+    // 1. Ensure Catalog exists
+    let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
+        root_ref
+    } else {
+        let mut cat = Dictionary::new();
+        cat.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        let id = doc.add_object(cat);
+        doc.trailer.set(b"Root", Object::Reference(id));
+        id
+    };
+
+    // 2. Ensure Pages root exists
+    let pages_root_id = {
+        let catalog = doc.get_object(catalog_id)?.as_dict()?;
+        if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
+            pages_ref
+        } else {
+            let mut pages_dict = Dictionary::new();
+            pages_dict.set(b"Type", Object::Name(b"Pages".to_vec()));
+            pages_dict.set(b"Count", Object::Integer(0));
+            pages_dict.set(b"Kids", Object::Array(Vec::new()));
+            let p_id = doc.add_object(pages_dict);
+            let cat_mut = doc.get_object_mut(catalog_id)?.as_dict_mut()?;
+            cat_mut.set(b"Pages", Object::Reference(p_id));
+            p_id
+        }
+    };
+
+    // Set page's Parent to pages_root_id
+    if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
+        page_dict.set(b"Parent", Object::Reference(pages_root_id));
+    }
+
+    // Insert into Pages dictionary Kids array
+    let pages_dict = doc.get_object_mut(pages_root_id)?.as_dict_mut()?;
+    let kids = match pages_dict.get_mut(b"Kids") {
+        Ok(Object::Array(ref mut arr)) => arr,
+        _ => {
+            pages_dict.set(b"Kids", Object::Array(Vec::new()));
+            pages_dict.get_mut(b"Kids")?.as_array_mut()?
+        }
+    };
+
+    let insert_pos = index.min(kids.len());
+    kids.insert(insert_pos, Object::Reference(page_id));
+    let count = kids.len() as i64;
+    pages_dict.set(b"Count", Object::Integer(count));
+
+    Ok(())
+}
+
+/// Rotates selected pages by degrees (clockwise positive, counter-clockwise negative; multiple of 90).
+pub fn rotate_pages(
+    doc: &mut LopdfDoc,
+    pages: &[usize],
+    degrees: i32,
+) -> Result<(), OrganizeError> {
+    if degrees % 90 != 0 {
+        return Err(OrganizeError::InvalidRotation(degrees));
+    }
+
+    let page_map = doc.get_pages();
+    let total_pages = page_map.len();
+
+    for &page_idx in pages {
+        let page_num = (page_idx + 1) as u32;
+        let &obj_id = page_map
+            .get(&page_num)
+            .ok_or(OrganizeError::IndexOutOfBounds(page_idx, total_pages))?;
+
+        if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(obj_id) {
+            let current = dict
+                .get(b"Rotate")
+                .ok()
+                .and_then(|o| o.as_i64().ok())
+                .unwrap_or(0) as i32;
+
+            let mut new_rot = (current + degrees) % 360;
+            if new_rot < 0 {
+                new_rot += 360;
+            }
+
+            dict.set(b"Rotate", Object::Integer(new_rot as i64));
+        }
+    }
+
+    Ok(())
+}
+
+/// Deletes specified pages from the document. Fails if all pages would be removed.
+pub fn delete_pages(
+    doc: &mut LopdfDoc,
+    pages: &[usize],
+) -> Result<(), OrganizeError> {
+    let current_pages = doc.get_pages();
+    let total = current_pages.len();
+
+    if pages.len() >= total {
+        return Err(OrganizeError::CannotRemoveAllPages);
+    }
+
+    // Convert 0-indexed pages to 1-indexed page numbers
+    let mut page_nums: Vec<u32> = pages.iter().map(|&idx| (idx + 1) as u32).collect();
+    page_nums.sort_unstable();
+
+    doc.delete_pages(&page_nums);
+    Ok(())
+}
+
+/// Inserts a blank page with given width and height at the specified index.
+pub fn insert_blank_page(
+    doc: &mut LopdfDoc,
+    index: usize,
+    width: f32,
+    height: f32,
+) -> Result<(), OrganizeError> {
+    // Create an empty content stream
+    let content_id = doc.add_object(Stream::new(Dictionary::new(), Vec::new()));
+
+    // Create empty resources dictionary
+    let resources_id = doc.add_object(Dictionary::new());
+
+    // Create Page dictionary
+    let mut page_dict = Dictionary::new();
+    page_dict.set(b"Type", Object::Name(b"Page".to_vec()));
+    page_dict.set(
+        b"MediaBox",
+        Object::Array(vec![
+            Object::Real(0.0),
+            Object::Real(0.0),
+            Object::Real(width),
+            Object::Real(height),
+        ]),
+    );
+    page_dict.set(b"Contents", Object::Reference(content_id));
+    page_dict.set(b"Resources", Object::Reference(resources_id));
+
+    let page_id = doc.add_object(page_dict);
+    insert_page_into_document(doc, index, page_id)
+}
+
+/// Duplicates the page at the given index, placing the copy directly after it.
+pub fn duplicate_page(
+    doc: &mut LopdfDoc,
+    index: usize,
+) -> Result<(), OrganizeError> {
+    let page_map = doc.get_pages();
+    let total = page_map.len();
+    let page_num = (index + 1) as u32;
+
+    let &source_id = page_map
+        .get(&page_num)
+        .ok_or(OrganizeError::IndexOutOfBounds(index, total))?;
+
+    let source_dict = doc.get_object(source_id)?.as_dict()?.clone();
+    let copy_id = doc.add_object(source_dict);
+
+    insert_page_into_document(doc, index + 1, copy_id)
+}
+
+/// Merges multiple PDF document byte buffers into a single combined PDF.
+pub fn combine_documents(inputs: &[Vec<u8>]) -> Result<Vec<u8>, OrganizeError> {
+    if inputs.is_empty() {
+        return Err(OrganizeError::CombineFailed("No input documents provided".to_string()));
+    }
+
+    let mut target = LopdfDoc::load_mem(&inputs[0])?;
+
+    for (idx, input_bytes) in inputs[1..].iter().enumerate() {
+        let source = LopdfDoc::load_mem(input_bytes)
+            .map_err(|e| OrganizeError::CombineFailed(format!("Failed to load doc #{}: {e}", idx + 2)))?;
+
+        let target_page_count = target.get_pages().len();
+
+        // Renumber objects in source document so they don't collide with target
+        let mut renumbered_source = source.clone();
+        let max_id = target.max_id;
+        renumbered_source.renumber_objects_with(max_id + 1);
+
+        for (&id, obj) in &renumbered_source.objects {
+            target.objects.entry(id).or_insert_with(|| obj.clone());
+        }
+
+        let source_pages: Vec<ObjectId> = renumbered_source.page_iter().collect();
+        for (i, page_id) in source_pages.into_iter().enumerate() {
+            insert_page_into_document(&mut target, target_page_count + i, page_id)?;
+        }
+    }
+
+    let mut out = Vec::new();
+    target.save_to(&mut out)?;
+    Ok(out)
+}
+
+/// Specification for splitting a document.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SplitRule {
+    /// Every N pages per output document.
+    EveryN(usize),
+    /// Page ranges, e.g. [(0..3), (3..7)].
+    Ranges(Vec<std::ops::Range<usize>>),
+    /// Single page per file.
+    SinglePage,
+}
+
+/// Splits a document into multiple document buffers based on the SplitRule.
+pub fn split_document(
+    doc_bytes: &[u8],
+    rule: SplitRule,
+) -> Result<Vec<Vec<u8>>, OrganizeError> {
+    let doc = LopdfDoc::load_mem(doc_bytes)?;
+    let total_pages = doc.get_pages().len();
+
+    let ranges = match rule {
+        SplitRule::SinglePage => (0..total_pages).map(|i| i..i + 1).collect(),
+        SplitRule::EveryN(n) => {
+            let chunk_size = n.max(1);
+            let mut r = Vec::new();
+            let mut start = 0;
+            while start < total_pages {
+                let end = (start + chunk_size).min(total_pages);
+                r.push(start..end);
+                start = end;
+            }
+            r
+        }
+        SplitRule::Ranges(r) => r,
+    };
+
+    let mut outputs = Vec::with_capacity(ranges.len());
+
+    for range in ranges {
+        if range.start >= total_pages {
+            continue;
+        }
+        let end = range.end.min(total_pages);
+
+        // Keep only pages within the range by deleting pages outside it
+        let mut sub_doc = doc.clone();
+        let pages_to_delete: Vec<u32> = (0..total_pages)
+            .filter(|&i| i < range.start || i >= end)
+            .map(|i| (i + 1) as u32)
+            .collect();
+
+        if pages_to_delete.len() < total_pages {
+            sub_doc.delete_pages(&pages_to_delete);
+            let mut buf = Vec::new();
+            sub_doc.save_to(&mut buf)?;
+            outputs.push(buf);
+        }
+    }
+
+    Ok(outputs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rotate_and_delete() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        // insert blank pages
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
+
+        assert_eq!(doc.get_pages().len(), 2);
+
+        // Rotate page 0 by 90 degrees
+        rotate_pages(&mut doc, &[0], 90).unwrap();
+
+        // Delete page 1
+        delete_pages(&mut doc, &[1]).unwrap();
+        assert_eq!(doc.get_pages().len(), 1);
+
+        // Trying to delete last page must fail
+        assert!(delete_pages(&mut doc, &[0]).is_err());
+    }
+}

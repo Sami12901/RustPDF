@@ -1,0 +1,15 @@
+[package]
+name = "rustpdf-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+rustpdf-cos = { workspace = true }
+rustpdf-model = { workspace = true }
+rustpdf-render = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+lopdf = { workspace = true }

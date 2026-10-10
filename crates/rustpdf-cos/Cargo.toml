@@ -1,0 +1,12 @@
+[package]
+name = "rustpdf-cos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+lopdf = { workspace = true }
+thiserror = { workspace = true }
+rustpdf-geom = { workspace = true }
+serde = { workspace = true }

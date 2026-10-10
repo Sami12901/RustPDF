@@ -1,0 +1,17 @@
+[package]
+name = "rustpdf-edit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+rustpdf-geom = { workspace = true }
+rustpdf-fonts = { workspace = true }
+rustpdf-cos = { workspace = true }
+rustpdf-model = { workspace = true }
+rustpdf-organize = { workspace = true }
+tempfile = { workspace = true }
+thiserror = { workspace = true }
+lopdf = { workspace = true }
+image = { workspace = true }

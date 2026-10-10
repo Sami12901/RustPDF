@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2D3139"/>
+      <stop offset="100%" stop-color="#1A1C20"/>
+    </linearGradient>
+    <linearGradient id="orangeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF7A3D"/>
+      <stop offset="100%" stop-color="#D44917"/>
+    </linearGradient>
+    <linearGradient id="paperGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E8EBF0"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <filter id="innerShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Dark Slate Foundation Sheet -->
+  <rect x="96" y="80" width="320" height="380" rx="36" fill="url(#bgGrad)" filter="url(#shadow)"/>
+
+  <!-- Layered White Document -->
+  <path d="M 140 120 L 310 120 L 400 210 L 400 420 A 24 24 0 0 1 376 444 L 164 444 A 24 24 0 0 1 140 420 Z" fill="url(#paperGrad)" filter="url(#innerShadow)"/>
+
+  <!-- Rust Orange Origami Fold Accent -->
+  <path d="M 310 120 L 400 210 L 310 210 Z" fill="url(#orangeGrad)"/>
+  <path d="M 310 210 L 250 250 L 330 270 Z" fill="#B8380E" opacity="0.4"/>
+  <path d="M 310 120 L 310 210 L 400 210" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.6"/>
+
+  <!-- Document Graphic Accent Lines -->
+  <rect x="180" y="270" width="140" height="14" rx="7" fill="#E05D26" opacity="0.9"/>
+  <rect x="180" y="310" width="180" height="12" rx="6" fill="#8C93A0" opacity="0.5"/>
+  <rect x="180" y="342" width="150" height="12" rx="6" fill="#8C93A0" opacity="0.4"/>
+  <rect x="180" y="374" width="110" height="12" rx="6" fill="#8C93A0" opacity="0.3"/>
+</svg>

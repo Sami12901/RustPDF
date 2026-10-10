@@ -1,0 +1,27 @@
+[package]
+name = "rustpdf-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+rustpdf-geom = { workspace = true }
+rustpdf-cos = { workspace = true }
+rustpdf-model = { workspace = true }
+rustpdf-render = { workspace = true }
+rustpdf-organize = { workspace = true }
+rustpdf-edit = { workspace = true }
+rustpdf-annot = { workspace = true }
+rustpdf-forms = { workspace = true }
+rustpdf-export = { workspace = true }
+rustpdf-fonts = { workspace = true }
+rustpdf-engine = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+rfd = { workspace = true }
+image = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+log = { workspace = true }

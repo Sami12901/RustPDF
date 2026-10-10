@@ -1,0 +1,23 @@
+# Rust Build Artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE / Editor Files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS Files
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Temporary Test & Scratch Output
+*.tmp
+*.lib
+*.a
+*.def
+*.s
+sample_test.pdf

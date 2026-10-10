@@ -1,0 +1,278 @@
+//! rustpdf-ui/theme — Appearance settings, theme customization engine, and semantic tokens.
+
+use egui::{Color32, Context, Stroke, Visuals};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ThemeMode {
+    Dark,
+    Light,
+    System,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AccentPreset {
+    RustOrange, // #E05D26 (Primary brand)
+    Blue,       // #2A7BE4
+    Green,      // #10B981
+    Violet,     // #8B5CF6
+    Teal,       // #14B8A6
+    Custom,
+}
+
+impl AccentPreset {
+    pub fn default_color(self) -> Color32 {
+        match self {
+            Self::RustOrange => Color32::from_rgb(224, 93, 38),
+            Self::Blue => Color32::from_rgb(42, 123, 228),
+            Self::Green => Color32::from_rgb(16, 185, 129),
+            Self::Violet => Color32::from_rgb(139, 92, 246),
+            Self::Teal => Color32::from_rgb(20, 184, 166),
+            Self::Custom => Color32::from_rgb(224, 93, 38),
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::RustOrange => "Rust Orange",
+            Self::Blue => "Ocean Blue",
+            Self::Green => "Emerald Green",
+            Self::Violet => "Royal Violet",
+            Self::Teal => "Nordic Teal",
+            Self::Custom => "Custom Accent",
+        }
+    }
+}
+
+/// Fully customizable semantic color tokens.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AppTheme {
+    pub mode: ThemeMode,
+    pub accent_preset: AccentPreset,
+    pub custom_accent: [u8; 3],
+
+    // Dark Palette Tokens
+    pub dark_bg: [u8; 3],
+    pub dark_panel: [u8; 3],
+    pub dark_surface: [u8; 3],
+    pub dark_border: [u8; 3],
+    pub dark_text_primary: [u8; 3],
+    pub dark_text_secondary: [u8; 3],
+
+    // Light Palette Tokens
+    pub light_bg: [u8; 3],
+    pub light_panel: [u8; 3],
+    pub light_surface: [u8; 3],
+    pub light_border: [u8; 3],
+    pub light_text_primary: [u8; 3],
+    pub light_text_secondary: [u8; 3],
+}
+
+impl Default for AppTheme {
+    fn default() -> Self {
+        Self {
+            mode: ThemeMode::Dark,
+            accent_preset: AccentPreset::RustOrange,
+            custom_accent: [224, 93, 38],
+
+            // Dark: Sleek, high-contrast, modern neutral surfaces
+            dark_bg: [18, 19, 22],
+            dark_panel: [24, 25, 29],
+            dark_surface: [32, 34, 40],
+            dark_border: [48, 51, 60],
+            dark_text_primary: [240, 242, 245],
+            dark_text_secondary: [156, 163, 175],
+
+            // Light: Warm editorial, clean borders, non-glare surfaces
+            light_bg: [245, 246, 248],
+            light_panel: [255, 255, 255],
+            light_surface: [238, 240, 244],
+            light_border: [218, 222, 229],
+            light_text_primary: [17, 24, 39],
+            light_text_secondary: [107, 114, 128],
+        }
+    }
+}
+
+impl AppTheme {
+    pub fn active_accent(&self) -> Color32 {
+        if self.accent_preset == AccentPreset::Custom {
+            Color32::from_rgb(
+                self.custom_accent[0],
+                self.custom_accent[1],
+                self.custom_accent[2],
+            )
+        } else {
+            self.accent_preset.default_color()
+        }
+    }
+
+    pub fn is_dark(&self) -> bool {
+        match self.mode {
+            ThemeMode::Dark => true,
+            ThemeMode::Light => false,
+            ThemeMode::System => true, // Fallback default dark
+        }
+    }
+
+    pub fn bg_color(&self) -> Color32 {
+        if self.is_dark() {
+            Color32::from_rgb(self.dark_bg[0], self.dark_bg[1], self.dark_bg[2])
+        } else {
+            Color32::from_rgb(self.light_bg[0], self.light_bg[1], self.light_bg[2])
+        }
+    }
+
+    pub fn panel_color(&self) -> Color32 {
+        if self.is_dark() {
+            Color32::from_rgb(self.dark_panel[0], self.dark_panel[1], self.dark_panel[2])
+        } else {
+            Color32::from_rgb(self.light_panel[0], self.light_panel[1], self.light_panel[2])
+        }
+    }
+
+    pub fn surface_color(&self) -> Color32 {
+        if self.is_dark() {
+            Color32::from_rgb(self.dark_surface[0], self.dark_surface[1], self.dark_surface[2])
+        } else {
+            Color32::from_rgb(self.light_surface[0], self.light_surface[1], self.light_surface[2])
+        }
+    }
+
+    pub fn border_color(&self) -> Color32 {
+        if self.is_dark() {
+            Color32::from_rgb(self.dark_border[0], self.dark_border[1], self.dark_border[2])
+        } else {
+            Color32::from_rgb(self.light_border[0], self.light_border[1], self.light_border[2])
+        }
+    }
+
+    pub fn text_primary(&self) -> Color32 {
+        if self.is_dark() {
+            Color32::from_rgb(
+                self.dark_text_primary[0],
+                self.dark_text_primary[1],
+                self.dark_text_primary[2],
+            )
+        } else {
+            Color32::from_rgb(
+                self.light_text_primary[0],
+                self.light_text_primary[1],
+                self.light_text_primary[2],
+            )
+        }
+    }
+
+    pub fn text_secondary(&self) -> Color32 {
+        if self.is_dark() {
+            Color32::from_rgb(
+                self.dark_text_secondary[0],
+                self.dark_text_secondary[1],
+                self.dark_text_secondary[2],
+            )
+        } else {
+            Color32::from_rgb(
+                self.light_text_secondary[0],
+                self.light_text_secondary[1],
+                self.light_text_secondary[2],
+            )
+        }
+    }
+
+    /// Injects theme into egui Visuals.
+    pub fn apply_to_egui(&self, ctx: &Context) {
+        let is_dark = self.is_dark();
+        let mut visuals = if is_dark {
+            Visuals::dark()
+        } else {
+            Visuals::light()
+        };
+
+        let accent = self.active_accent();
+        let bg = self.bg_color();
+        let panel = self.panel_color();
+        let surface = self.surface_color();
+        let border = self.border_color();
+        let text_p = self.text_primary();
+        let text_s = self.text_secondary();
+
+        visuals.window_fill = panel;
+        visuals.panel_fill = bg;
+        visuals.faint_bg_color = surface;
+        visuals.extreme_bg_color = if is_dark {
+            Color32::from_rgb(14, 15, 17)
+        } else {
+            Color32::from_rgb(255, 255, 255)
+        };
+
+        visuals.window_stroke = Stroke::new(1.0, border);
+        visuals.widgets.noninteractive.bg_fill = panel;
+        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, border);
+        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, text_p);
+
+        visuals.widgets.inactive.bg_fill = surface;
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, border);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, text_s);
+
+        visuals.widgets.hovered.bg_fill = if is_dark {
+            Color32::from_rgb(44, 48, 58)
+        } else {
+            Color32::from_rgb(228, 232, 238)
+        };
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, accent);
+        visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, text_p);
+
+        visuals.widgets.active.bg_fill = accent;
+        visuals.widgets.active.bg_stroke = Stroke::new(1.0, accent);
+        visuals.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
+
+        visuals.selection.bg_fill = Color32::from_rgba_premultiplied(
+            accent.r(),
+            accent.g(),
+            accent.b(),
+            if is_dark { 100 } else { 80 },
+        );
+        visuals.selection.stroke = Stroke::new(1.0, accent);
+
+        ctx.set_visuals(visuals);
+    }
+
+    pub fn config_path() -> PathBuf {
+        let mut p = dirs_fallback();
+        p.push("rustpdf_theme.json");
+        p
+    }
+
+    pub fn load_persisted() -> Self {
+        let path = Self::config_path();
+        if let Ok(data) = fs::read_to_string(&path) {
+            if let Ok(theme) = serde_json::from_str(&data) {
+                return theme;
+            }
+        }
+        Self::default()
+    }
+
+    pub fn save_persisted(&self) -> Result<(), std::io::Error> {
+        let path = Self::config_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let data = serde_json::to_string_pretty(self)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        fs::write(path, data)?;
+        Ok(())
+    }
+}
+
+fn dirs_fallback() -> PathBuf {
+    if let Some(base) = std::env::var_os("APPDATA") {
+        PathBuf::from(base).join("RustPdf")
+    } else if let Some(base) = std::env::var_os("HOME") {
+        PathBuf::from(base).join(".config").join("rustpdf")
+    } else {
+        PathBuf::from(".")
+    }
+}

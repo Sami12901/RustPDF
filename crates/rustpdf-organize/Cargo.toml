@@ -1,0 +1,12 @@
+[package]
+name = "rustpdf-organize"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+rustpdf-cos = { workspace = true }
+rustpdf-model = { workspace = true }
+thiserror = { workspace = true }
+lopdf = { workspace = true }

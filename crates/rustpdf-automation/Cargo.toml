@@ -1,0 +1,15 @@
+[package]
+name = "rustpdf-automation"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+rustpdf-engine = { workspace = true }
+rustpdf-organize = { workspace = true }
+rustpdf-export = { workspace = true }
+rustpdf-edit = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
