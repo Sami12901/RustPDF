@@ -1,13 +1,6 @@
 [build]
 jobs = 4
 
-[target.x86_64-pc-windows-gnu]
-linker = "rust-lld"
-rustflags = [
-    "-C", "dlltool=C:/Users/saifu/.gemini/antigravity-ide/brain/77f1d0f4-6fb8-44cb-ac85-74c0ee049ed4/scratch/dlltool.exe",
-    "--cfg", "getrandom_backend=\"windows_legacy\""
-]
-
 [profile.test]
 incremental = false
 

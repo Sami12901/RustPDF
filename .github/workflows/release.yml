@@ -18,19 +18,15 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             archive_name: rustpdf-windows-x86_64.zip
-            bin_ext: .exe
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             archive_name: rustpdf-linux-x86_64.tar.gz
-            bin_ext: ''
           - target: aarch64-apple-darwin
             os: macos-latest
             archive_name: rustpdf-macos-aarch64.tar.gz
-            bin_ext: ''
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             archive_name: rustpdf-macos-x86_64.tar.gz
-            bin_ext: ''
 
     runs-on: ${{ matrix.os }}
 
@@ -47,22 +43,22 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libasound2-dev
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libasound2-dev pkg-config
 
       - name: Build release binaries
-        run: |
-          cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package Windows Artifacts
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          mkdir staging
-          cp target/${{ matrix.target }}/release/rustpdf.exe staging/
-          cp target/${{ matrix.target }}/release/rustpdf-cli.exe staging/
-          cp scripts/RustPDF-Launcher.bat staging/
-          cp README.md staging/
-          cp LICENSE-MIT staging/
-          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.archive_name }}
+          New-Item -ItemType Directory -Path staging -Force
+          Copy-Item target/${{ matrix.target }}/release/rustpdf.exe staging/
+          Copy-Item target/${{ matrix.target }}/release/rustpdf-cli.exe staging/
+          Copy-Item scripts/RustPDF-Launcher.bat staging/
+          Copy-Item README.md staging/
+          Copy-Item LICENSE-MIT staging/
+          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.archive_name }} -Force
 
       - name: Package Unix Artifacts
         if: runner.os != 'Windows'
