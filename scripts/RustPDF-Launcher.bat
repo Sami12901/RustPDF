@@ -8,7 +8,11 @@ echo =======================================================
 echo.
 
 set SCRIPT_DIR=%~dp0
-set APP_EXE=%SCRIPT_DIR%..\target\release\rustpdf.exe
+set APP_EXE=%SCRIPT_DIR%target\release\rustpdf.exe
+
+if not exist "%APP_EXE%" (
+    set APP_EXE=%SCRIPT_DIR%..\target\release\rustpdf.exe
+)
 
 if not exist "%APP_EXE%" (
     set APP_EXE=%SCRIPT_DIR%rustpdf.exe
