@@ -21,3 +21,7 @@ Desktop.ini
 *.def
 *.s
 sample_test.pdf
+/dist/
+/staging/
+*.zip
+*.tar.gz

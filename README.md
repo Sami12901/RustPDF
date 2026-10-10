@@ -75,6 +75,49 @@ Whether you need to merge contracts, reorganize massive scans, edit on-page text
 
 ---
 
+## 📥 Downloads & Installation
+
+Pre-compiled, standalone binaries are published for **Windows**, **Linux**, and **macOS**:
+
+| Operating System | Package / Architecture | Direct Download | Quick Setup / Launcher |
+| :--- | :--- | :--- | :--- |
+| **🪟 Windows** | `x86_64` (64-bit) | [**rustpdf-windows-x86_64.zip**](https://github.com/Sami12901/RustPDF/releases/latest/download/rustpdf-windows-x86_64.zip) | Double-click [`RustPDF-Launcher.bat`](scripts/RustPDF-Launcher.bat) |
+| **🐧 Linux** | `x86_64` (GLIBC 2.31+) | [**rustpdf-linux-x86_64.tar.gz**](https://github.com/Sami12901/RustPDF/releases/latest/download/rustpdf-linux-x86_64.tar.gz) | Terminal one-liner (`curl ... \| bash`) |
+| **🍎 macOS** | Apple Silicon (`M1/M2/M3/M4`) | [**rustpdf-macos-aarch64.tar.gz**](https://github.com/Sami12901/RustPDF/releases/latest/download/rustpdf-macos-aarch64.tar.gz) | Terminal one-liner or extract `.tar.gz` |
+| **🍎 macOS** | Intel (`x86_64`) | [**rustpdf-macos-x86_64.tar.gz**](https://github.com/Sami12901/RustPDF/releases/latest/download/rustpdf-macos-x86_64.tar.gz) | Extract `.tar.gz` and run |
+
+---
+
+### 🐧 Linux: One-Line Terminal Installer
+Install or update RustPDF instantly in your terminal:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Sami12901/RustPDF/main/scripts/install.sh | bash
+```
+* **Location**: Installs standalone `rustpdf` and `rustpdf-cli` into `~/.local/bin/`.
+* **Desktop App**: Automatically registers `rustpdf.desktop` in your application launcher.
+* **Auto-Fallback**: If prebuilt binaries are unavailable, it will automatically build via Cargo.
+
+---
+
+### 🪟 Windows: One-Line PowerShell Setup & Launcher
+Open PowerShell and run:
+```powershell
+irm https://raw.githubusercontent.com/Sami12901/RustPDF/main/scripts/install.ps1 | iex
+```
+* **Desktop Shortcut**: Automatically creates a `RustPDF` desktop shortcut.
+* **PATH Setup**: Adds `rustpdf` and `rustpdf-cli` to your user PATH.
+* **Launcher Script**: You can also double-click [**`scripts/RustPDF-Launcher.bat`**](scripts/RustPDF-Launcher.bat) at any time to run the app.
+
+---
+
+### 📦 Cargo Package Manager (Cross-Platform)
+If you have the Rust toolchain installed, you can compile and install directly:
+```bash
+cargo install --git https://github.com/Sami12901/RustPDF.git rustpdf rustpdf-cli
+```
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites

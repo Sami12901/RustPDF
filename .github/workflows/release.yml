@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive_name: rustpdf-windows-x86_64.zip
+            bin_ext: .exe
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive_name: rustpdf-linux-x86_64.tar.gz
+            bin_ext: ''
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive_name: rustpdf-macos-aarch64.tar.gz
+            bin_ext: ''
+          - target: x86_64-apple-darwin
+            os: macos-13
+            archive_name: rustpdf-macos-x86_64.tar.gz
+            bin_ext: ''
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux GUI dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libasound2-dev
+
+      - name: Build release binaries
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Windows Artifacts
+        if: runner.os == 'Windows'
+        run: |
+          mkdir staging
+          cp target/${{ matrix.target }}/release/rustpdf.exe staging/
+          cp target/${{ matrix.target }}/release/rustpdf-cli.exe staging/
+          cp scripts/RustPDF-Launcher.bat staging/
+          cp README.md staging/
+          cp LICENSE-MIT staging/
+          Compress-Archive -Path staging/* -DestinationPath ${{ matrix.archive_name }}
+
+      - name: Package Unix Artifacts
+        if: runner.os != 'Windows'
+        run: |
+          mkdir staging
+          cp target/${{ matrix.target }}/release/rustpdf staging/
+          cp target/${{ matrix.target }}/release/rustpdf-cli staging/
+          cp README.md staging/
+          cp LICENSE-MIT staging/
+          tar -czvf ${{ matrix.archive_name }} -C staging .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive_name }}
+          path: ${{ matrix.archive_name }}
+
+  create-github-release:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
