@@ -103,7 +103,11 @@ impl AutomationRunner {
                     .map_err(|e| AutomationError::Execution(e.to_string()))?;
                 Ok(AutomationResponse {
                     success: true,
-                    message: format!("Combined {} documents into {}", input_paths.len(), output_path.display()),
+                    message: format!(
+                        "Combined {} documents into {}",
+                        input_paths.len(),
+                        output_path.display()
+                    ),
                     data: None,
                 })
             }
@@ -113,11 +117,9 @@ impl AutomationRunner {
                 output_dir,
             } => {
                 let bytes = fs::read(&path)?;
-                let chunks = rustpdf_organize::split_document(
-                    &bytes,
-                    SplitRule::EveryN(every_n_pages),
-                )
-                .map_err(|e| AutomationError::Execution(e.to_string()))?;
+                let chunks =
+                    rustpdf_organize::split_document(&bytes, SplitRule::EveryN(every_n_pages))
+                        .map_err(|e| AutomationError::Execution(e.to_string()))?;
 
                 if !output_dir.exists() {
                     fs::create_dir_all(&output_dir)?;

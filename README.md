@@ -37,10 +37,12 @@ Whether you need to merge contracts, reorganize massive scans, edit on-page text
 ## ✨ Key Features
 
 ### ✏️ Interactive Content & Text Editing
+- **Operator-Level Search & Replace**: Parse and modify PDF content stream operators (`Tj`, `TJ`) with AST decoding and proper UTF-16BE/ASCII encoding, completely avoiding raw byte splicing.
+- **Targeted In-Place Editing**: Edit text blocks directly by operator index (`op_index`), preventing unintended modifications to repeated identical text strings.
+- **Overlay Text Fallback**: Clean background-masked replacement tool with undo support when embedded subset fonts prevent safe in-place re-encoding.
 - **Add Text**: Place custom text anywhere on any page with fine control over font size, coordinates $(X, Y)$, and RGB colors.
-- **Find & Replace Text**: Search and replace content directly inside PDF page streams with automatic stream decompression and font preservation.
 - **Image Insertion**: Embed PNG, JPEG, and WebP graphics into pages with custom dimension scaling, position offsets, and transparency support.
-- **Watermarks**: Apply diagonal, semi-transparent watermark stamps across documents with configurable opacity and angles.
+- **Watermarks**: Apply diagonal watermark stamps across documents with configurable colors, font sizes, and rotation angles.
 - **Headers & Footers**: Add running headers and footers with dynamic page numbering variables (`{n}` for current page, `{total}` for total page count).
 - **Backgrounds**: Tint pages or apply custom background canvas colors behind existing text and vector drawings.
 - **Bates Numbering**: Legal document sequential indexing with customizable prefixes and zero-padding formats.
@@ -49,7 +51,7 @@ Whether you need to merge contracts, reorganize massive scans, edit on-page text
 ### 📄 Document Viewer & Workspace
 - **Multi-Document Tabs**: Open and switch between multiple PDFs simultaneously.
 - **Smooth Navigation**: Continuous vertical scrolling, single-page view, and two-page spreads.
-- **Deep Zooming**: Crisp sub-pixel rendering from 10% to 500% with fit-to-width and fit-to-page shortcuts.
+- **Deep Zooming**: Crisp sub-pixel rendering from 20% to 800% with fit-to-width and fit-to-page shortcuts.
 - **Embedded In-App Branding**: Modern custom toolbar, responsive status indicators, and SVG iconography.
 
 ### 📑 Page Organization & Thumbnail Grid
@@ -58,9 +60,15 @@ Whether you need to merge contracts, reorganize massive scans, edit on-page text
 - **Combine Documents**: Merge multiple independent PDFs into a single unified file.
 - **Split Documents**: Decompose large documents into page ranges or single-page PDF files.
 
-### 🔍 Search & Text Extraction
-- **Find as you type**: Real-time regex and text searching across pages.
-- **Match Navigator**: Visual match highlights, navigation counters, and case-sensitivity filters.
+### 🗜️ PDF Compression & Optimization
+- **Flate Stream Compression**: Safely compresses uncompressed or raw content streams.
+- **Object Graph Pruning**: Traverses reachable objects from trailer `/Root` and eliminates unreferenced orphan objects.
+- **Input/Output Ratio Reporting**: Real-time feedback on bytes saved and compression ratio.
+
+### 🔍 Whole-Document Search & Text Extraction
+- **Full-Document Search**: Scans all pages across the document with real-time match counters.
+- **Match Navigator**: Visual on-canvas highlight boxes (yellow for all matches, orange for active match) with next/previous navigation.
+- **Case & Word Filters**: Case-sensitive and whole-word matching filters.
 - **Copy Text**: Clean Unicode text extraction preserving visual layout and reading order.
 
 ### 🎨 Modern Theming & Customization
@@ -68,12 +76,15 @@ Whether you need to merge contracts, reorganize massive scans, edit on-page text
 - **Color Accents**: Curated presets (Rust Orange, Ocean Blue, Emerald Green, Royal Violet, Nordic Teal) plus a live RGB picker.
 - **Configurable Thumbnails**: Customizable preview card sizes, spacing density, drop shadows, and corner radii.
 
-### 🔒 Enterprise-Grade Security & Safety
-- **100% Offline & Private**: Zero network calls, zero accounts, zero cloud dependencies. Your documents never leave your storage.
+### 🔒 Privacy, Security & Integrity
+- **100% Offline & Private**: Zero network calls, zero accounts, zero telemetry. All operations run locally on your machine.
 - **Atomic Saving**: Non-destructive save operations; changes write to temporary files, verify structural validity, and atomically replace the target.
-- **Deep Undo & Redo**: Unlimited history stack (<kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Y</kbd>) across all editing and organization operations.
+- **User-Visible File Error Reporting**: Real-time toast notifications for save, write, and permission errors instead of silent drops.
+- **Bounded Undo & Redo**: Configurable-depth transaction history stack across all editing and organization operations.
+- **Honest Standards Compliance**: Rejects pseudo-encryption and fake cover-up redactions in adherence to ISO 32000 principles.
 
 ---
+
 
 ## 📥 Downloads & Installation
 

@@ -129,23 +129,43 @@ impl AppTheme {
         if self.is_dark() {
             Color32::from_rgb(self.dark_panel[0], self.dark_panel[1], self.dark_panel[2])
         } else {
-            Color32::from_rgb(self.light_panel[0], self.light_panel[1], self.light_panel[2])
+            Color32::from_rgb(
+                self.light_panel[0],
+                self.light_panel[1],
+                self.light_panel[2],
+            )
         }
     }
 
     pub fn surface_color(&self) -> Color32 {
         if self.is_dark() {
-            Color32::from_rgb(self.dark_surface[0], self.dark_surface[1], self.dark_surface[2])
+            Color32::from_rgb(
+                self.dark_surface[0],
+                self.dark_surface[1],
+                self.dark_surface[2],
+            )
         } else {
-            Color32::from_rgb(self.light_surface[0], self.light_surface[1], self.light_surface[2])
+            Color32::from_rgb(
+                self.light_surface[0],
+                self.light_surface[1],
+                self.light_surface[2],
+            )
         }
     }
 
     pub fn border_color(&self) -> Color32 {
         if self.is_dark() {
-            Color32::from_rgb(self.dark_border[0], self.dark_border[1], self.dark_border[2])
+            Color32::from_rgb(
+                self.dark_border[0],
+                self.dark_border[1],
+                self.dark_border[2],
+            )
         } else {
-            Color32::from_rgb(self.light_border[0], self.light_border[1], self.light_border[2])
+            Color32::from_rgb(
+                self.light_border[0],
+                self.light_border[1],
+                self.light_border[2],
+            )
         }
     }
 

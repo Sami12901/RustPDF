@@ -39,6 +39,21 @@ PDF files are treated as **untrusted, hostile inputs**. Malicious or malformed P
 
 ---
 
-## 3. Reporting Vulnerabilities
+## 3. Cryptography & Password Protection Notice
+
+- **ISO 32000 Encryption**: Standard Security Handler password encryption (RC4/AES key derivation and ciphertext streams) is currently **Unsupported** in RustPdf v0.3.0.
+- **No Pseudo-Encryption**: In adherence to strict security standards, RustPdf rejects creating or advertising "password protected" PDFs that merely write unencrypted trailer dictionaries. Real password handling is scheduled for a future milestone following rigorous compliance testing.
+
+---
+
+## 4. Redaction vs. Visual Overlays
+
+- **Visual Overlays Are Not Redactions**: Drawing an opaque rectangle or white background block over a text block or image is a presentation cover-up, not destructive redaction. The underlying PDF stream operators, font glyphs, and image XObjects remain physically intact inside the file structure and can easily be retrieved by text extractors or object inspectors.
+- **Genuine Redaction Status**: Permanent, destructive redaction (removing intersecting stream operators, clipping raster images, and stripping associated metadata) is marked **Unsupported** until a mathematically verified sanitization engine is implemented.
+
+---
+
+## 5. Reporting Vulnerabilities
 
 If you discover a security issue or vulnerability in RustPdf, please report it via GitHub Security Advisories or contact the maintainers directly. Do not open public issues for unpatched vulnerabilities.
+

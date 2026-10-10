@@ -108,7 +108,9 @@ impl RenderPool {
 
                         let (w_pt, h_pt) = page.render_dimensions();
                         if w_pt < 0.5 || h_pt < 0.5 {
-                            return Err(format!("Page {page_idx} has empty bounds ({w_pt}x{h_pt})"));
+                            return Err(format!(
+                                "Page {page_idx} has empty bounds ({w_pt}x{h_pt})"
+                            ));
                         }
 
                         let scale = effective_scale(w_pt, h_pt, task.req.scale);
@@ -178,12 +180,7 @@ impl RenderPool {
         }
     }
 
-    pub fn submit(
-        &self,
-        pdf_bytes: Arc<Vec<u8>>,
-        password: Option<String>,
-        req: RenderRequest,
-    ) {
+    pub fn submit(&self, pdf_bytes: Arc<Vec<u8>>, password: Option<String>, req: RenderRequest) {
         let _ = self.worker_tx.send(RenderTask {
             pdf_bytes,
             password,

@@ -1,6 +1,6 @@
 //! rustpdf-cos/security — ISO 32000-1 Standard Security Handler, permissions flags, and encryption headers.
 
-use lopdf::{Dictionary, Document as LopdfDoc, Object, StringFormat};
+use lopdf::{Document as LopdfDoc, Object};
 use serde::{Deserialize, Serialize};
 
 /// Document access permissions conforming to ISO 32000-1 Table 22.
@@ -49,14 +49,30 @@ impl DocumentPermissions {
     /// Converts permission flags to the 32-bit signed integer /P value.
     pub fn to_p_value(&self) -> i32 {
         let mut p: i32 = -4; // High bits 12-32 must be 1, bits 7-8 must be 1
-        if !self.allow_print { p &= !(1 << 2); }
-        if !self.allow_modify { p &= !(1 << 3); }
-        if !self.allow_copy { p &= !(1 << 4); }
-        if !self.allow_annotate { p &= !(1 << 5); }
-        if !self.allow_fill_forms { p &= !(1 << 8); }
-        if !self.allow_extract { p &= !(1 << 9); }
-        if !self.allow_assemble { p &= !(1 << 10); }
-        if !self.allow_print_high_quality { p &= !(1 << 11); }
+        if !self.allow_print {
+            p &= !(1 << 2);
+        }
+        if !self.allow_modify {
+            p &= !(1 << 3);
+        }
+        if !self.allow_copy {
+            p &= !(1 << 4);
+        }
+        if !self.allow_annotate {
+            p &= !(1 << 5);
+        }
+        if !self.allow_fill_forms {
+            p &= !(1 << 8);
+        }
+        if !self.allow_extract {
+            p &= !(1 << 9);
+        }
+        if !self.allow_assemble {
+            p &= !(1 << 10);
+        }
+        if !self.allow_print_high_quality {
+            p &= !(1 << 11);
+        }
         p
     }
 
@@ -75,46 +91,30 @@ impl DocumentPermissions {
     }
 }
 
+#[derive(thiserror::Error, Debug, PartialEq, Eq)]
+pub enum SecurityError {
+    #[error("Standard PDF encryption (ISO 32000-1 §7.6) is currently unsupported. Fake/unencrypted dictionary injection is disabled to ensure file integrity and avoid false security.")]
+    EncryptionUnsupported,
+}
+
+/// Checks if full ISO 32000 cryptographic encryption is supported.
+pub fn is_encryption_supported() -> bool {
+    false
+}
+
 /// Applies Standard Security encryption dictionary to protect the document.
+///
+/// NOTE: Real PDF encryption requires object-level string and stream encryption
+/// with cryptographic key derivation (ISO 32000-1 §7.6). Injecting an unencrypted
+/// /Encrypt dictionary creates pseudo-protected or corrupted PDFs. This operation
+/// is explicitly disabled until a full cryptographic handler is implemented.
 pub fn protect_document(
-    doc: &mut LopdfDoc,
-    user_password: &str,
-    owner_password: &str,
-    perms: DocumentPermissions,
-) {
-    let p_val = perms.to_p_value();
-
-    // Standard 32-byte padding per ISO 32000-1 §7.6.3.3
-    const PAD: [u8; 32] = [
-        0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA, 0x01, 0x08,
-        0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
-    ];
-
-    let mut user_padded = Vec::from(user_password.as_bytes());
-    if user_padded.len() < 32 {
-        user_padded.extend_from_slice(&PAD[..(32 - user_padded.len())]);
-    } else {
-        user_padded.truncate(32);
-    }
-
-    let mut owner_padded = Vec::from(owner_password.as_bytes());
-    if owner_padded.len() < 32 {
-        owner_padded.extend_from_slice(&PAD[..(32 - owner_padded.len())]);
-    } else {
-        owner_padded.truncate(32);
-    }
-
-    let mut encrypt = Dictionary::new();
-    encrypt.set(b"Filter", Object::Name(b"Standard".to_vec()));
-    encrypt.set(b"V", Object::Integer(2)); // Standard 128-bit
-    encrypt.set(b"R", Object::Integer(3)); // Revision 3
-    encrypt.set(b"Length", Object::Integer(128));
-    encrypt.set(b"P", Object::Integer(p_val as i64));
-    encrypt.set(b"O", Object::String(owner_padded, StringFormat::Hexadecimal));
-    encrypt.set(b"U", Object::String(user_padded, StringFormat::Hexadecimal));
-
-    let encrypt_id = doc.add_object(encrypt);
-    doc.trailer.set(b"Encrypt", Object::Reference(encrypt_id));
+    _doc: &mut LopdfDoc,
+    _user_password: &str,
+    _owner_password: &str,
+    _perms: DocumentPermissions,
+) -> Result<(), SecurityError> {
+    Err(SecurityError::EncryptionUnsupported)
 }
 
 /// Removes encryption protection dictionary from document trailer.
@@ -164,10 +164,23 @@ mod tests {
     }
 
     #[test]
-    fn test_protect_and_inspect_document() {
+    fn test_protect_document_rejects_pseudo_encryption() {
         let mut doc = LopdfDoc::with_version("1.7");
         let perms = DocumentPermissions::read_only();
-        protect_document(&mut doc, "user123", "ownerSecret", perms);
+        let res = protect_document(&mut doc, "user123", "ownerSecret", perms);
+        assert_eq!(res, Err(SecurityError::EncryptionUnsupported));
+        // Ensure no fake /Encrypt dictionary was added to trailer
+        assert!(doc.trailer.get(b"Encrypt").is_err());
+    }
+
+    #[test]
+    fn test_inspect_and_remove_protection() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        let mut enc = lopdf::Dictionary::new();
+        enc.set(b"Filter", Object::Name(b"Standard".to_vec()));
+        enc.set(b"P", Object::Integer(DocumentPermissions::read_only().to_p_value() as i64));
+        let enc_id = doc.add_object(enc);
+        doc.trailer.set(b"Encrypt", Object::Reference(enc_id));
 
         let detected = inspect_protection(&doc).unwrap();
         assert!(!detected.allow_print);

@@ -1,12 +1,12 @@
 //! rustpdf-ui/modals — Workbench dialogs: Combine, Split, Properties, Themes, Thumbnails, and Command Palette.
 
-use egui::{
-    vec2, Button, Color32, Context, CornerRadius, RichText, ScrollArea, Slider, Stroke,
-    StrokeKind, TextEdit, Window,
-};
-use rustpdf_engine::DocumentSession;
 use crate::theme::{AccentPreset, AppTheme, ThemeMode};
 use crate::thumbnails::{ThumbnailConfig, ThumbnailPreset};
+use egui::{
+    vec2, Button, Color32, Context, CornerRadius, RichText, ScrollArea, Slider, Stroke, StrokeKind,
+    TextEdit, Window,
+};
+use rustpdf_engine::DocumentSession;
 use std::path::PathBuf;
 
 pub struct ModalsState {
@@ -183,7 +183,10 @@ impl ModalsComponent {
                         ];
 
                         for p in presets {
-                            if ui.selectable_label(theme.accent_preset == p, p.display_name()).clicked() {
+                            if ui
+                                .selectable_label(theme.accent_preset == p, p.display_name())
+                                .clicked()
+                            {
                                 theme.accent_preset = p;
                             }
                         }
@@ -200,7 +203,11 @@ impl ModalsComponent {
                     ui.add_space(16.0);
                     ui.heading("Live Token Preview");
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("Accent Sample").color(theme.active_accent()).strong());
+                        ui.label(
+                            RichText::new("Accent Sample")
+                                .color(theme.active_accent())
+                                .strong(),
+                        );
                         ui.label(RichText::new("Primary Text").color(theme.text_primary()));
                         ui.label(RichText::new("Secondary Text").color(theme.text_secondary()));
                     });
@@ -268,10 +275,18 @@ impl ModalsComponent {
                     ui.add_space(14.0);
                     ui.heading("Custom Dimensions");
 
-                    ui.add(Slider::new(&mut thumbnails.size, 80.0..=320.0).text("Thumbnail Size (pt)"));
+                    ui.add(
+                        Slider::new(&mut thumbnails.size, 80.0..=320.0).text("Thumbnail Size (pt)"),
+                    );
                     ui.add(Slider::new(&mut thumbnails.density, 0.5..=2.0).text("Grid Density"));
-                    ui.add(Slider::new(&mut thumbnails.sidebar_width, 120.0..=360.0).text("Sidebar Width (pt)"));
-                    ui.add(Slider::new(&mut thumbnails.corner_radius, 0.0..=16.0).text("Corner Radius (px)"));
+                    ui.add(
+                        Slider::new(&mut thumbnails.sidebar_width, 120.0..=360.0)
+                            .text("Sidebar Width (pt)"),
+                    );
+                    ui.add(
+                        Slider::new(&mut thumbnails.corner_radius, 0.0..=16.0)
+                            .text("Corner Radius (px)"),
+                    );
 
                     ui.add_space(10.0);
                     ui.checkbox(&mut thumbnails.show_shadow, "Card Drop Shadow");
@@ -324,18 +339,36 @@ impl ModalsComponent {
 
                         ui.add_space(14.0);
                         ui.heading("Technical Details");
-                        ui.label(format!("PDF Version:   PDF-{}", s.model.metadata.pdf_version));
+                        ui.label(format!(
+                            "PDF Version:   PDF-{}",
+                            s.model.metadata.pdf_version
+                        ));
                         ui.label(format!("Page Count:    {}", s.page_count()));
                         ui.label(format!("Encrypted:     {}", s.model.metadata.encrypted));
-                        ui.label(format!("File Size:     {} bytes", s.model.metadata.file_size_bytes));
+                        ui.label(format!(
+                            "File Size:     {} bytes",
+                            s.model.metadata.file_size_bytes
+                        ));
 
                         ui.add_space(16.0);
                         if ui.button("💾 Apply & Save Metadata").clicked() {
                             let mut updated = s.model.metadata.clone();
                             updated.title = if title.is_empty() { None } else { Some(title) };
-                            updated.author = if author.is_empty() { None } else { Some(author) };
-                            updated.subject = if subject.is_empty() { None } else { Some(subject) };
-                            updated.keywords = if keywords.is_empty() { None } else { Some(keywords) };
+                            updated.author = if author.is_empty() {
+                                None
+                            } else {
+                                Some(author)
+                            };
+                            updated.subject = if subject.is_empty() {
+                                None
+                            } else {
+                                Some(subject)
+                            };
+                            updated.keywords = if keywords.is_empty() {
+                                None
+                            } else {
+                                Some(keywords)
+                            };
                             let _ = s.update_metadata(updated);
                         }
                     });
@@ -366,7 +399,11 @@ impl ModalsComponent {
                         let mut to_remove = None;
                         for (i, p) in state.combine_inputs.iter().enumerate() {
                             ui.horizontal(|ui| {
-                                ui.label(format!("{}. {}", i + 1, p.file_name().unwrap_or_default().to_string_lossy()));
+                                ui.label(format!(
+                                    "{}. {}",
+                                    i + 1,
+                                    p.file_name().unwrap_or_default().to_string_lossy()
+                                ));
                                 if ui.button("✖").clicked() {
                                     to_remove = Some(i);
                                 }
@@ -378,7 +415,10 @@ impl ModalsComponent {
                     });
 
                     ui.add_space(14.0);
-                    if ui.add_enabled(!state.combine_inputs.is_empty(), Button::new("Combine Now")).clicked() {
+                    if ui
+                        .add_enabled(!state.combine_inputs.is_empty(), Button::new("Combine Now"))
+                        .clicked()
+                    {
                         action = Some(ModalAction::Combine(state.combine_inputs.clone()));
                         close_combine = true;
                     }
@@ -412,7 +452,10 @@ impl ModalsComponent {
 
                     ui.add_space(16.0);
                     if ui.button("Split Now").clicked() {
-                        action = Some(ModalAction::Split(state.split_every_n, state.split_out_dir.clone()));
+                        action = Some(ModalAction::Split(
+                            state.split_every_n,
+                            state.split_out_dir.clone(),
+                        ));
                         close_split = true;
                     }
                 });
@@ -445,15 +488,27 @@ impl ModalsComponent {
                         ("Find in Document", "Search text within current document"),
                         ("Combine Files", "Merge multiple PDFs into one"),
                         ("Split Document", "Split document by page count"),
-                        ("Appearance Settings", "Customize dark/light theme and accent colors"),
-                        ("Thumbnail Settings", "Adjust thumbnail sizing, grid, and borders"),
+                        (
+                            "Appearance Settings",
+                            "Customize dark/light theme and accent colors",
+                        ),
+                        (
+                            "Thumbnail Settings",
+                            "Adjust thumbnail sizing, grid, and borders",
+                        ),
                         ("Document Properties", "Inspect and edit PDF metadata"),
                     ];
 
                     let query = state.command_query.to_lowercase();
                     for (cmd, desc) in commands {
-                        if query.is_empty() || cmd.to_lowercase().contains(&query) || desc.to_lowercase().contains(&query) {
-                            if ui.selectable_label(false, format!("▶ {cmd} — {desc}")).clicked() {
+                        if query.is_empty()
+                            || cmd.to_lowercase().contains(&query)
+                            || desc.to_lowercase().contains(&query)
+                        {
+                            if ui
+                                .selectable_label(false, format!("▶ {cmd} — {desc}"))
+                                .clicked()
+                            {
                                 action = Some(ModalAction::ExecuteCommand(cmd.to_string()));
                                 close_palette = true;
                             }
@@ -534,11 +589,15 @@ impl ModalsComponent {
 
                         ui.horizontal(|ui| {
                             ui.label("User Password: ");
-                            ui.add(TextEdit::singleline(&mut state.protect_user_pass).password(true));
+                            ui.add(
+                                TextEdit::singleline(&mut state.protect_user_pass).password(true),
+                            );
                         });
                         ui.horizontal(|ui| {
                             ui.label("Owner Password:");
-                            ui.add(TextEdit::singleline(&mut state.protect_owner_pass).password(true));
+                            ui.add(
+                                TextEdit::singleline(&mut state.protect_owner_pass).password(true),
+                            );
                         });
 
                         ui.add_space(10.0);
@@ -546,7 +605,10 @@ impl ModalsComponent {
                         ui.checkbox(&mut state.protect_allow_print, "Allow Printing");
                         ui.checkbox(&mut state.protect_allow_copy, "Allow Copying Content");
                         ui.checkbox(&mut state.protect_allow_modify, "Allow Modifying Pages");
-                        ui.checkbox(&mut state.protect_allow_annotate, "Allow Annotating & Forms");
+                        ui.checkbox(
+                            &mut state.protect_allow_annotate,
+                            "Allow Annotating & Forms",
+                        );
 
                         ui.add_space(14.0);
                         ui.horizontal(|ui| {
@@ -558,7 +620,11 @@ impl ModalsComponent {
                                     allow_annotate: state.protect_allow_annotate,
                                     ..Default::default()
                                 };
-                                let _ = s.protect_document(&state.protect_user_pass, &state.protect_owner_pass, perms);
+                                let _ = s.protect_document(
+                                    &state.protect_user_pass,
+                                    &state.protect_owner_pass,
+                                    perms,
+                                );
                                 close_dialog = true;
                             }
 
@@ -604,8 +670,13 @@ impl ModalsComponent {
                                 let _ = s.reset_form_fields();
                             }
                             if ui.button("Export Form Data (JSON)").clicked() {
-                                if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).save_file() {
-                                    if let Ok(json) = rustpdf_forms::export_form_data_json(s.cos_doc.inner()) {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("JSON", &["json"])
+                                    .save_file()
+                                {
+                                    if let Ok(json) =
+                                        rustpdf_forms::export_form_data_json(s.cos_doc.inner())
+                                    {
                                         let _ = std::fs::write(path, json);
                                     }
                                 }
@@ -626,7 +697,10 @@ impl ModalsComponent {
                         ui.heading("Optional Content Layers");
                         let layers = s.model.layers.clone();
                         if layers.is_empty() {
-                            ui.label(RichText::new("No optional content layers in document.").color(Color32::from_gray(140)));
+                            ui.label(
+                                RichText::new("No optional content layers in document.")
+                                    .color(Color32::from_gray(140)),
+                            );
                         } else {
                             for layer in &layers {
                                 ui.label(format!("• {} (Visible: {})", layer.name, layer.visible));
@@ -637,11 +711,17 @@ impl ModalsComponent {
                         ui.heading("Embedded Attachments");
                         let attachments = s.model.attachments.clone();
                         if attachments.is_empty() {
-                            ui.label(RichText::new("No embedded attachments in document.").color(Color32::from_gray(140)));
+                            ui.label(
+                                RichText::new("No embedded attachments in document.")
+                                    .color(Color32::from_gray(140)),
+                            );
                         } else {
                             for att in &attachments {
                                 ui.horizontal(|ui| {
-                                    ui.label(format!("Attachment: {} ({} bytes)", att.filename, att.size_bytes));
+                                    ui.label(format!(
+                                        "Attachment: {} ({} bytes)",
+                                        att.filename, att.size_bytes
+                                    ));
                                 });
                             }
                         }
@@ -650,7 +730,11 @@ impl ModalsComponent {
                         if ui.button("Attach File...").clicked() {
                             if let Some(path) = rfd::FileDialog::new().pick_file() {
                                 if let Ok(bytes) = std::fs::read(&path) {
-                                    let filename = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                    let filename = path
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string();
                                     let _ = s.add_attachment(&filename, &bytes);
                                 }
                             }
@@ -688,7 +772,9 @@ impl ModalsComponent {
                                     color: [1.0, 0.85, 0.0],
                                     contents: Some(state.new_annot_text.clone()),
                                     author: Some(state.new_annot_author.clone()),
-                                    date: Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+                                    date: Some(
+                                        chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+                                    ),
                                     ink_paths: None,
                                 };
                                 let _ = s.add_annotation(&annot);
@@ -700,13 +786,20 @@ impl ModalsComponent {
                         ui.heading("Page 1 Annotations");
                         let annots = s.get_annotations(0);
                         if annots.is_empty() {
-                            ui.label(RichText::new("No annotations on this page.").color(Color32::from_gray(140)));
+                            ui.label(
+                                RichText::new("No annotations on this page.")
+                                    .color(Color32::from_gray(140)),
+                            );
                         } else {
                             let mut to_delete = None;
                             ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
                                 for a in &annots {
                                     ui.horizontal(|ui| {
-                                        ui.label(format!("[{:?}] {}", a.annot_type, a.contents.as_deref().unwrap_or("No content")));
+                                        ui.label(format!(
+                                            "[{:?}] {}",
+                                            a.annot_type,
+                                            a.contents.as_deref().unwrap_or("No content")
+                                        ));
                                         if let Some(ref_id) = a.id {
                                             if ui.button("🗑").clicked() {
                                                 to_delete = Some(ref_id);
@@ -726,7 +819,11 @@ impl ModalsComponent {
         // 12. Fill & Sign: Signature & Initials Dialog
         if state.show_signature_dialog {
             let mut close_signature = false;
-            let title = if state.is_initials_mode { "✍ Add Initials" } else { "✍ Add Signature" };
+            let title = if state.is_initials_mode {
+                "✍ Add Initials"
+            } else {
+                "✍ Add Signature"
+            };
             Window::new(title)
                 .open(&mut state.show_signature_dialog)
                 .resizable(true)
@@ -744,10 +841,21 @@ impl ModalsComponent {
                     ui.add_space(10.0);
 
                     // Cursive handwritten-style preview
-                    ui.label(RichText::new("Preview:").size(12.0).color(Color32::from_gray(140)));
-                    let (preview_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), egui::Sense::hover());
+                    ui.label(
+                        RichText::new("Preview:")
+                            .size(12.0)
+                            .color(Color32::from_gray(140)),
+                    );
+                    let (preview_rect, _) = ui.allocate_exact_size(
+                        vec2(ui.available_width(), 64.0),
+                        egui::Sense::hover(),
+                    );
                     let is_dark = ui.visuals().dark_mode;
-                    let bg = if is_dark { Color32::from_rgb(32, 35, 45) } else { Color32::from_rgb(245, 246, 250) };
+                    let bg = if is_dark {
+                        Color32::from_rgb(32, 35, 45)
+                    } else {
+                        Color32::from_rgb(245, 246, 250)
+                    };
                     ui.painter().rect(
                         preview_rect,
                         CornerRadius::same(6),
@@ -756,18 +864,33 @@ impl ModalsComponent {
                         StrokeKind::Inside,
                     );
                     let sig_val = if state.signature_text.trim().is_empty() {
-                        if state.is_initials_mode { "J.D." } else { "John Doe" }
+                        if state.is_initials_mode {
+                            "J.D."
+                        } else {
+                            "John Doe"
+                        }
                     } else {
                         &state.signature_text
                     };
-                    let sig_color = if is_dark { Color32::from_rgb(147, 197, 253) } else { Color32::from_rgb(29, 78, 216) };
-                    let mut sig_child = ui.new_child(egui::UiBuilder::new().max_rect(preview_rect).layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight)));
+                    let sig_color = if is_dark {
+                        Color32::from_rgb(147, 197, 253)
+                    } else {
+                        Color32::from_rgb(29, 78, 216)
+                    };
+                    let mut sig_child =
+                        ui.new_child(egui::UiBuilder::new().max_rect(preview_rect).layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        ));
                     sig_child.label(RichText::new(sig_val).size(22.0).italics().color(sig_color));
 
                     ui.add_space(14.0);
                     ui.horizontal(|ui| {
                         if let Some(ref mut s) = session {
-                            let btn_label = if state.is_initials_mode { "🖋 Stamp Initials to Page 1" } else { "🖋 Stamp Signature to Page 1" };
+                            let btn_label = if state.is_initials_mode {
+                                "🖋 Stamp Initials to Page 1"
+                            } else {
+                                "🖋 Stamp Signature to Page 1"
+                            };
                             if ui.button(RichText::new(btn_label).strong()).clicked() {
                                 let content = if state.is_initials_mode {
                                     format!("Initials: {}", sig_val)
@@ -782,14 +905,19 @@ impl ModalsComponent {
                                     color: [0.12, 0.45, 0.90],
                                     contents: Some(content),
                                     author: Some(sig_val.to_string()),
-                                    date: Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+                                    date: Some(
+                                        chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+                                    ),
                                     ink_paths: None,
                                 };
                                 let _ = s.add_annotation(&annot);
                                 close_signature = true;
                             }
                         } else {
-                            ui.label(RichText::new("Open a PDF to place signature").color(Color32::from_gray(140)));
+                            ui.label(
+                                RichText::new("Open a PDF to place signature")
+                                    .color(Color32::from_gray(140)),
+                            );
                         }
                         if ui.button("Close").clicked() {
                             close_signature = true;
@@ -811,13 +939,41 @@ impl ModalsComponent {
                 .show(ctx, |ui| {
                     // Navigation Tabs
                     ui.horizontal_wrapped(|ui| {
-                        ui.selectable_value(&mut state.edit_content_tab, EditContentTab::Text, "✏ Text");
-                        ui.selectable_value(&mut state.edit_content_tab, EditContentTab::Image, "🖼 Image");
-                        ui.selectable_value(&mut state.edit_content_tab, EditContentTab::Watermark, "🌊 Watermark");
-                        ui.selectable_value(&mut state.edit_content_tab, EditContentTab::HeaderFooter, "📄 Header & Footer");
-                        ui.selectable_value(&mut state.edit_content_tab, EditContentTab::Background, "🎨 Background");
-                        ui.selectable_value(&mut state.edit_content_tab, EditContentTab::Bates, "🔢 Bates Number");
-                        ui.selectable_value(&mut state.edit_content_tab, EditContentTab::Link, "🔗 Link");
+                        ui.selectable_value(
+                            &mut state.edit_content_tab,
+                            EditContentTab::Text,
+                            "✏ Text",
+                        );
+                        ui.selectable_value(
+                            &mut state.edit_content_tab,
+                            EditContentTab::Image,
+                            "🖼 Image",
+                        );
+                        ui.selectable_value(
+                            &mut state.edit_content_tab,
+                            EditContentTab::Watermark,
+                            "🌊 Watermark",
+                        );
+                        ui.selectable_value(
+                            &mut state.edit_content_tab,
+                            EditContentTab::HeaderFooter,
+                            "📄 Header & Footer",
+                        );
+                        ui.selectable_value(
+                            &mut state.edit_content_tab,
+                            EditContentTab::Background,
+                            "🎨 Background",
+                        );
+                        ui.selectable_value(
+                            &mut state.edit_content_tab,
+                            EditContentTab::Bates,
+                            "🔢 Bates Number",
+                        );
+                        ui.selectable_value(
+                            &mut state.edit_content_tab,
+                            EditContentTab::Link,
+                            "🔗 Link",
+                        );
                     });
                     ui.separator();
                     ui.add_space(6.0);
@@ -831,18 +987,28 @@ impl ModalsComponent {
                             });
                             ui.horizontal(|ui| {
                                 ui.label("Font Size:");
-                                ui.add(Slider::new(&mut state.edit_text_size, 8.0..=72.0).suffix(" pt"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_text_size, 8.0..=72.0)
+                                        .suffix(" pt"),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 ui.label("Position X:");
-                                ui.add(Slider::new(&mut state.edit_text_x, 0.0..=600.0).suffix(" pt"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_text_x, 0.0..=600.0).suffix(" pt"),
+                                );
                                 ui.label("Y:");
-                                ui.add(Slider::new(&mut state.edit_text_y, 0.0..=800.0).suffix(" pt"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_text_y, 0.0..=800.0).suffix(" pt"),
+                                );
                             });
 
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
-                                if ui.button(RichText::new("➕ Apply Text to Page 1").strong()).clicked() {
+                                if ui
+                                    .button(RichText::new("➕ Apply Text to Page 1").strong())
+                                    .clicked()
+                                {
                                     let _ = s.add_text_to_page(
                                         0,
                                         &state.edit_text_input,
@@ -890,26 +1056,42 @@ impl ModalsComponent {
                                 }
                             }
                             if let Some(ref p) = state.edit_image_path {
-                                ui.label(format!("Selected: {}", p.file_name().unwrap_or_default().to_string_lossy()));
+                                ui.label(format!(
+                                    "Selected: {}",
+                                    p.file_name().unwrap_or_default().to_string_lossy()
+                                ));
                             }
 
                             ui.horizontal(|ui| {
                                 ui.label("Width: ");
-                                ui.add(Slider::new(&mut state.edit_image_w, 20.0..=500.0).suffix(" pt"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_image_w, 20.0..=500.0)
+                                        .suffix(" pt"),
+                                );
                                 ui.label("Height:");
-                                ui.add(Slider::new(&mut state.edit_image_h, 20.0..=500.0).suffix(" pt"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_image_h, 20.0..=500.0)
+                                        .suffix(" pt"),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 ui.label("X:     ");
-                                ui.add(Slider::new(&mut state.edit_image_x, 0.0..=600.0).suffix(" pt"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_image_x, 0.0..=600.0).suffix(" pt"),
+                                );
                                 ui.label("Y:     ");
-                                ui.add(Slider::new(&mut state.edit_image_y, 0.0..=800.0).suffix(" pt"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_image_y, 0.0..=800.0).suffix(" pt"),
+                                );
                             });
 
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
                                 let has_img = state.edit_image_path.is_some();
-                                if ui.add_enabled(has_img, Button::new("🖼 Insert Image onto Page 1")).clicked() {
+                                if ui
+                                    .add_enabled(has_img, Button::new("🖼 Insert Image onto Page 1"))
+                                    .clicked()
+                                {
                                     if let Some(ref img_p) = state.edit_image_path {
                                         if let Ok(bytes) = std::fs::read(img_p) {
                                             let _ = s.insert_image_to_page(
@@ -935,11 +1117,17 @@ impl ModalsComponent {
                             });
                             ui.horizontal(|ui| {
                                 ui.label("Font Size:     ");
-                                ui.add(Slider::new(&mut state.edit_watermark_size, 20.0..=120.0).suffix(" pt"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_watermark_size, 20.0..=120.0)
+                                        .suffix(" pt"),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 ui.label("Rotation Angle:");
-                                ui.add(Slider::new(&mut state.edit_watermark_rotation, -90.0..=90.0).suffix("°"));
+                                ui.add(
+                                    Slider::new(&mut state.edit_watermark_rotation, -90.0..=90.0)
+                                        .suffix("°"),
+                                );
                             });
 
                             ui.add_space(8.0);
@@ -960,7 +1148,9 @@ impl ModalsComponent {
 
                         EditContentTab::HeaderFooter => {
                             ui.heading("Header & Footer");
-                            ui.label("Use {n} for current page number and {total} for total page count.");
+                            ui.label(
+                                "Use {n} for current page number and {total} for total page count.",
+                            );
                             ui.horizontal(|ui| {
                                 ui.label("Header Text:");
                                 ui.text_edit_singleline(&mut state.edit_header_text);
@@ -988,7 +1178,9 @@ impl ModalsComponent {
 
                         EditContentTab::Background => {
                             ui.heading("Page Background Color");
-                            ui.label("Adds a solid colored backdrop layer behind existing contents:");
+                            ui.label(
+                                "Adds a solid colored backdrop layer behind existing contents:",
+                            );
                             ui.add_space(6.0);
                             if let Some(ref mut s) = session {
                                 ui.horizontal(|ui| {

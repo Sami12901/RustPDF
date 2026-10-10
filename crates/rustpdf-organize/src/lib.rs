@@ -115,10 +115,7 @@ pub fn rotate_pages(
 }
 
 /// Deletes specified pages from the document. Fails if all pages would be removed.
-pub fn delete_pages(
-    doc: &mut LopdfDoc,
-    pages: &[usize],
-) -> Result<(), OrganizeError> {
+pub fn delete_pages(doc: &mut LopdfDoc, pages: &[usize]) -> Result<(), OrganizeError> {
     let current_pages = doc.get_pages();
     let total = current_pages.len();
 
@@ -167,10 +164,7 @@ pub fn insert_blank_page(
 }
 
 /// Duplicates the page at the given index, placing the copy directly after it.
-pub fn duplicate_page(
-    doc: &mut LopdfDoc,
-    index: usize,
-) -> Result<(), OrganizeError> {
+pub fn duplicate_page(doc: &mut LopdfDoc, index: usize) -> Result<(), OrganizeError> {
     let page_map = doc.get_pages();
     let total = page_map.len();
     let page_num = (index + 1) as u32;
@@ -188,14 +182,17 @@ pub fn duplicate_page(
 /// Merges multiple PDF document byte buffers into a single combined PDF.
 pub fn combine_documents(inputs: &[Vec<u8>]) -> Result<Vec<u8>, OrganizeError> {
     if inputs.is_empty() {
-        return Err(OrganizeError::CombineFailed("No input documents provided".to_string()));
+        return Err(OrganizeError::CombineFailed(
+            "No input documents provided".to_string(),
+        ));
     }
 
     let mut target = LopdfDoc::load_mem(&inputs[0])?;
 
     for (idx, input_bytes) in inputs[1..].iter().enumerate() {
-        let source = LopdfDoc::load_mem(input_bytes)
-            .map_err(|e| OrganizeError::CombineFailed(format!("Failed to load doc #{}: {e}", idx + 2)))?;
+        let source = LopdfDoc::load_mem(input_bytes).map_err(|e| {
+            OrganizeError::CombineFailed(format!("Failed to load doc #{}: {e}", idx + 2))
+        })?;
 
         let target_page_count = target.get_pages().len();
 
@@ -231,10 +228,7 @@ pub enum SplitRule {
 }
 
 /// Splits a document into multiple document buffers based on the SplitRule.
-pub fn split_document(
-    doc_bytes: &[u8],
-    rule: SplitRule,
-) -> Result<Vec<Vec<u8>>, OrganizeError> {
+pub fn split_document(doc_bytes: &[u8], rule: SplitRule) -> Result<Vec<Vec<u8>>, OrganizeError> {
     let doc = LopdfDoc::load_mem(doc_bytes)?;
     let total_pages = doc.get_pages().len();
 

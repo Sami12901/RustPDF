@@ -8,6 +8,9 @@ use thiserror::Error;
 pub mod content;
 pub use content::*;
 
+pub mod optimizer;
+pub use optimizer::*;
+
 #[derive(Error, Debug)]
 pub enum EditError {
     #[error("atomic save failed: {0}")]

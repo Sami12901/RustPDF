@@ -103,9 +103,17 @@ impl IconKind {
             IconKind::SearchIndex | IconKind::Search => Color32::from_rgb(16, 185, 129), // Green
             IconKind::JavaScript => Color32::from_rgb(37, 99, 235), // Blue
             IconKind::FolderOpen => Color32::from_rgb(100, 116, 139), // Slate
-            IconKind::AddText | IconKind::Dot | IconKind::Line | IconKind::Date => Color32::from_rgb(139, 92, 246), // Purple
-            IconKind::HeaderFooter | IconKind::Watermark | IconKind::Link | IconKind::BatesNumbering | IconKind::ExtractPages => Color32::from_rgb(225, 29, 116), // Magenta
-            IconKind::Spreadsheet | IconKind::Presentation | IconKind::AddImage => Color32::from_rgb(37, 99, 235), // Blue
+            IconKind::AddText | IconKind::Dot | IconKind::Line | IconKind::Date => {
+                Color32::from_rgb(139, 92, 246)
+            } // Purple
+            IconKind::HeaderFooter
+            | IconKind::Watermark
+            | IconKind::Link
+            | IconKind::BatesNumbering
+            | IconKind::ExtractPages => Color32::from_rgb(225, 29, 116), // Magenta
+            IconKind::Spreadsheet | IconKind::Presentation | IconKind::AddImage => {
+                Color32::from_rgb(37, 99, 235)
+            } // Blue
             IconKind::AppLogo | IconKind::About => Color32::from_rgb(235, 95, 38), // Rust Orange
             _ => Color32::from_gray(180),
         }
@@ -213,8 +221,14 @@ impl Icons {
         // Fold inner shadow crease
         let fold_shadow = vec![
             pos2(right - fold_size, top + fold_size),
-            pos2(right - fold_size - doc_w * 0.12, top + fold_size + doc_h * 0.08),
-            pos2(right - fold_size + doc_w * 0.05, top + fold_size + doc_h * 0.10),
+            pos2(
+                right - fold_size - doc_w * 0.12,
+                top + fold_size + doc_h * 0.08,
+            ),
+            pos2(
+                right - fold_size + doc_w * 0.05,
+                top + fold_size + doc_h * 0.10,
+            ),
         ];
         painter.add(egui::Shape::convex_polygon(
             fold_shadow,
@@ -230,7 +244,10 @@ impl Icons {
         let header_y = top + doc_h * 0.44;
         let header_rect = Rect::from_min_max(
             pos2(line_x1, header_y - doc_h * 0.04),
-            pos2(line_x1 + (line_x2 - line_x1) * 0.70, header_y + doc_h * 0.04),
+            pos2(
+                line_x1 + (line_x2 - line_x1) * 0.70,
+                header_y + doc_h * 0.04,
+            ),
         );
         painter.rect_filled(header_rect, CornerRadius::same(2), primary_color);
 
@@ -244,7 +261,10 @@ impl Icons {
         // Body content line 2
         let y3 = top + doc_h * 0.76;
         painter.line_segment(
-            [pos2(line_x1, y3), pos2(line_x1 + (line_x2 - line_x1) * 0.55, y3)],
+            [
+                pos2(line_x1, y3),
+                pos2(line_x1 + (line_x2 - line_x1) * 0.55, y3),
+            ],
             Stroke::new(1.4, Color32::from_gray(180)),
         );
     }
@@ -280,11 +300,29 @@ impl Icons {
                     painter.line_segment([pts[i], pts[i + 1]], stroke);
                 }
                 // Fold flap
-                painter.line_segment([pos2(right - fold, top), pos2(right - fold, top + fold)], stroke);
-                painter.line_segment([pos2(right - fold, top + fold), pos2(right, top + fold)], stroke);
+                painter.line_segment(
+                    [pos2(right - fold, top), pos2(right - fold, top + fold)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(right - fold, top + fold), pos2(right, top + fold)],
+                    stroke,
+                );
                 // Content lines
-                painter.line_segment([pos2(left + w * 0.12, top + h * 0.42), pos2(right - w * 0.12, top + h * 0.42)], stroke);
-                painter.line_segment([pos2(left + w * 0.12, top + h * 0.58), pos2(right - w * 0.12, top + h * 0.58)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.12, top + h * 0.42),
+                        pos2(right - w * 0.12, top + h * 0.42),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.12, top + h * 0.58),
+                        pos2(right - w * 0.12, top + h * 0.58),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::NewBlank => {
@@ -333,14 +371,20 @@ impl Icons {
                 }
                 // Top shutter
                 painter.rect_stroke(
-                    Rect::from_min_max(pos2(left + w * 0.12, top), pos2(right - w * 0.22, top + h * 0.25)),
+                    Rect::from_min_max(
+                        pos2(left + w * 0.12, top),
+                        pos2(right - w * 0.22, top + h * 0.25),
+                    ),
                     CornerRadius::ZERO,
                     stroke,
                     StrokeKind::Middle,
                 );
                 // Bottom label
                 painter.rect_stroke(
-                    Rect::from_min_max(pos2(left + w * 0.10, bottom - h * 0.32), pos2(right - w * 0.10, bottom)),
+                    Rect::from_min_max(
+                        pos2(left + w * 0.10, bottom - h * 0.32),
+                        pos2(right - w * 0.10, bottom),
+                    ),
                     CornerRadius::ZERO,
                     stroke,
                     StrokeKind::Middle,
@@ -372,8 +416,14 @@ impl Icons {
 
             IconKind::Combine => {
                 // Stacked documents with plus
-                let r1 = Rect::from_min_size(pos2(p.x + w * 0.15, p.y + h * 0.22), vec2(w * 0.44, h * 0.58));
-                let r2 = Rect::from_min_size(pos2(p.x + w * 0.35, p.y + h * 0.12), vec2(w * 0.44, h * 0.58));
+                let r1 = Rect::from_min_size(
+                    pos2(p.x + w * 0.15, p.y + h * 0.22),
+                    vec2(w * 0.44, h * 0.58),
+                );
+                let r2 = Rect::from_min_size(
+                    pos2(p.x + w * 0.35, p.y + h * 0.12),
+                    vec2(w * 0.44, h * 0.58),
+                );
                 painter.rect_stroke(r2, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 painter.rect_stroke(r1, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 // Mini plus in bottom-right
@@ -389,11 +439,19 @@ impl Icons {
                 let right = p.x + w * 0.80;
                 let top = p.y + h * 0.14;
                 let bottom = p.y + h * 0.86;
-                painter.rect_stroke(Rect::from_min_max(pos2(left, top), pos2(right, bottom)), CornerRadius::same(2), stroke, StrokeKind::Middle);
+                painter.rect_stroke(
+                    Rect::from_min_max(pos2(left, top), pos2(right, bottom)),
+                    CornerRadius::same(2),
+                    stroke,
+                    StrokeKind::Middle,
+                );
                 // Dividing dashed center cut
                 let mid_y = (top + bottom) * 0.5;
                 painter.line_segment([pos2(left, mid_y), pos2(left + w * 0.14, mid_y)], stroke);
-                painter.line_segment([pos2(left + w * 0.24, mid_y), pos2(right - w * 0.24, mid_y)], stroke);
+                painter.line_segment(
+                    [pos2(left + w * 0.24, mid_y), pos2(right - w * 0.24, mid_y)],
+                    stroke,
+                );
                 painter.line_segment([pos2(right - w * 0.14, mid_y), pos2(right, mid_y)], stroke);
             }
 
@@ -403,7 +461,8 @@ impl Icons {
                 // Circular arc
                 let mut pts = Vec::new();
                 for i in 0..16 {
-                    let angle = (i as f32) * 2.0 * std::f32::consts::PI * 0.72 / 15.0 - std::f32::consts::PI * 0.5;
+                    let angle = (i as f32) * 2.0 * std::f32::consts::PI * 0.72 / 15.0
+                        - std::f32::consts::PI * 0.5;
                     pts.push(pos2(center.x + angle.cos() * r, center.y + angle.sin() * r));
                 }
                 for i in 0..pts.len() - 1 {
@@ -420,7 +479,8 @@ impl Icons {
                 let r = w * 0.30;
                 let mut pts = Vec::new();
                 for i in 0..16 {
-                    let angle = std::f32::consts::PI * 1.5 - (i as f32) * 2.0 * std::f32::consts::PI * 0.72 / 15.0;
+                    let angle = std::f32::consts::PI * 1.5
+                        - (i as f32) * 2.0 * std::f32::consts::PI * 0.72 / 15.0;
                     pts.push(pos2(center.x + angle.cos() * r, center.y + angle.sin() * r));
                 }
                 for i in 0..pts.len() - 1 {
@@ -437,8 +497,17 @@ impl Icons {
                 let top = p.y + h * 0.28;
                 let bottom = p.y + h * 0.84;
                 // Lid
-                painter.line_segment([pos2(p.x + w * 0.16, top), pos2(p.x + w * 0.84, top)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.40, top - h * 0.08), pos2(p.x + w * 0.60, top - h * 0.08)], stroke);
+                painter.line_segment(
+                    [pos2(p.x + w * 0.16, top), pos2(p.x + w * 0.84, top)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.40, top - h * 0.08),
+                        pos2(p.x + w * 0.60, top - h * 0.08),
+                    ],
+                    stroke,
+                );
                 // Bin
                 let pts = vec![
                     pos2(left, top),
@@ -450,13 +519,31 @@ impl Icons {
                     painter.line_segment([pts[i], pts[i + 1]], stroke);
                 }
                 // Slats
-                painter.line_segment([pos2(p.x + w * 0.42, top + h * 0.12), pos2(p.x + w * 0.42, bottom - h * 0.10)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.58, top + h * 0.12), pos2(p.x + w * 0.58, bottom - h * 0.10)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.42, top + h * 0.12),
+                        pos2(p.x + w * 0.42, bottom - h * 0.10),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.58, top + h * 0.12),
+                        pos2(p.x + w * 0.58, bottom - h * 0.10),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::Duplicate => {
-                let r1 = Rect::from_min_size(pos2(p.x + w * 0.16, p.y + h * 0.26), vec2(w * 0.48, h * 0.58));
-                let r2 = Rect::from_min_size(pos2(p.x + w * 0.34, p.y + h * 0.14), vec2(w * 0.48, h * 0.58));
+                let r1 = Rect::from_min_size(
+                    pos2(p.x + w * 0.16, p.y + h * 0.26),
+                    vec2(w * 0.48, h * 0.58),
+                );
+                let r2 = Rect::from_min_size(
+                    pos2(p.x + w * 0.34, p.y + h * 0.14),
+                    vec2(w * 0.48, h * 0.58),
+                );
                 painter.rect_stroke(r2, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 painter.rect_stroke(r1, CornerRadius::same(2), stroke, StrokeKind::Middle);
             }
@@ -479,22 +566,55 @@ impl Icons {
                 for i in 0..pts.len() - 1 {
                     painter.line_segment([pts[i], pts[i + 1]], stroke);
                 }
-                painter.line_segment([pos2(right - fold, bottom), pos2(right - fold, bottom - fold)], stroke);
-                painter.line_segment([pos2(right - fold, bottom - fold), pos2(right, bottom - fold)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(right - fold, bottom),
+                        pos2(right - fold, bottom - fold),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(right - fold, bottom - fold),
+                        pos2(right, bottom - fold),
+                    ],
+                    stroke,
+                );
                 // Lines
-                painter.line_segment([pos2(left + w * 0.12, top + h * 0.24), pos2(right - w * 0.16, top + h * 0.24)], stroke);
-                painter.line_segment([pos2(left + w * 0.12, top + h * 0.42), pos2(right - w * 0.24, top + h * 0.42)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.12, top + h * 0.24),
+                        pos2(right - w * 0.16, top + h * 0.24),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.12, top + h * 0.42),
+                        pos2(right - w * 0.24, top + h * 0.42),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::Highlight => {
                 // Slanted marker pen
                 let tip = pos2(p.x + w * 0.24, p.y + h * 0.74);
                 let top_right = pos2(p.x + w * 0.76, p.y + h * 0.22);
-                painter.line_segment([tip, top_right], Stroke::new(stroke.width * 2.2, stroke_color));
+                painter.line_segment(
+                    [tip, top_right],
+                    Stroke::new(stroke.width * 2.2, stroke_color),
+                );
                 // Chisel tip
                 painter.line_segment([pos2(p.x + w * 0.18, p.y + h * 0.78), tip], stroke);
                 // Neon streak below
-                painter.line_segment([pos2(p.x + w * 0.14, p.y + h * 0.86), pos2(p.x + w * 0.65, p.y + h * 0.86)], Stroke::new(stroke.width * 1.5, stroke_color));
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.14, p.y + h * 0.86),
+                        pos2(p.x + w * 0.65, p.y + h * 0.86),
+                    ],
+                    Stroke::new(stroke.width * 1.5, stroke_color),
+                );
             }
 
             IconKind::FreehandInk => {
@@ -513,13 +633,33 @@ impl Icons {
                 }
                 painter.line_segment([pos2(cx, p.y + h * 0.24), pos2(cx, p.y + h * 0.52)], stroke);
                 // Ink curve below
-                painter.line_segment([pos2(p.x + w * 0.18, p.y + h * 0.84), pos2(p.x + w * 0.50, p.y + h * 0.78)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.50, p.y + h * 0.78), pos2(p.x + w * 0.82, p.y + h * 0.86)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.18, p.y + h * 0.84),
+                        pos2(p.x + w * 0.50, p.y + h * 0.78),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.50, p.y + h * 0.78),
+                        pos2(p.x + w * 0.82, p.y + h * 0.86),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::Shape => {
                 // Rectangle overlapping circle
-                painter.rect_stroke(Rect::from_min_size(pos2(p.x + w * 0.16, p.y + h * 0.16), vec2(w * 0.42, h * 0.42)), CornerRadius::same(2), stroke, StrokeKind::Middle);
+                painter.rect_stroke(
+                    Rect::from_min_size(
+                        pos2(p.x + w * 0.16, p.y + h * 0.16),
+                        vec2(w * 0.42, h * 0.42),
+                    ),
+                    CornerRadius::same(2),
+                    stroke,
+                    StrokeKind::Middle,
+                );
                 painter.circle_stroke(pos2(p.x + w * 0.64, p.y + h * 0.64), w * 0.22, stroke);
             }
 
@@ -529,9 +669,22 @@ impl Icons {
                 let right = p.x + w * 0.78;
                 let top = p.y + h * 0.20;
                 let bottom = p.y + h * 0.86;
-                painter.rect_stroke(Rect::from_min_max(pos2(left, top), pos2(right, bottom)), CornerRadius::same(3), stroke, StrokeKind::Middle);
+                painter.rect_stroke(
+                    Rect::from_min_max(pos2(left, top), pos2(right, bottom)),
+                    CornerRadius::same(3),
+                    stroke,
+                    StrokeKind::Middle,
+                );
                 // Top clip clamp
-                painter.rect_stroke(Rect::from_min_max(pos2(p.x + w * 0.36, p.y + h * 0.12), pos2(p.x + w * 0.64, top + h * 0.04)), CornerRadius::same(2), stroke, StrokeKind::Middle);
+                painter.rect_stroke(
+                    Rect::from_min_max(
+                        pos2(p.x + w * 0.36, p.y + h * 0.12),
+                        pos2(p.x + w * 0.64, top + h * 0.04),
+                    ),
+                    CornerRadius::same(2),
+                    stroke,
+                    StrokeKind::Middle,
+                );
                 // Checkmark inside
                 let c1 = pos2(left + w * 0.14, top + h * 0.38);
                 let c2 = pos2(left + w * 0.24, top + h * 0.48);
@@ -539,7 +692,13 @@ impl Icons {
                 painter.line_segment([c1, c2], stroke);
                 painter.line_segment([c2, c3], stroke);
                 // Content line
-                painter.line_segment([pos2(left + w * 0.14, top + h * 0.58), pos2(right - w * 0.14, top + h * 0.58)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.14, top + h * 0.58),
+                        pos2(right - w * 0.14, top + h * 0.58),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::ResetForm => {
@@ -571,21 +730,54 @@ impl Icons {
                 // Arrow pointing out
                 let cx = rect.center().x;
                 painter.line_segment([pos2(cx, p.y + h * 0.18), pos2(cx, p.y + h * 0.62)], stroke);
-                painter.line_segment([pos2(cx, p.y + h * 0.18), pos2(cx - w * 0.14, p.y + h * 0.32)], stroke);
-                painter.line_segment([pos2(cx, p.y + h * 0.18), pos2(cx + w * 0.14, p.y + h * 0.32)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(cx, p.y + h * 0.18),
+                        pos2(cx - w * 0.14, p.y + h * 0.32),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(cx, p.y + h * 0.18),
+                        pos2(cx + w * 0.14, p.y + h * 0.32),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::Protect => {
                 // Padlock
-                let body = Rect::from_min_max(pos2(p.x + w * 0.22, p.y + h * 0.44), pos2(p.x + w * 0.78, p.y + h * 0.86));
+                let body = Rect::from_min_max(
+                    pos2(p.x + w * 0.22, p.y + h * 0.44),
+                    pos2(p.x + w * 0.78, p.y + h * 0.86),
+                );
                 painter.rect_stroke(body, CornerRadius::same(3), stroke, StrokeKind::Middle);
                 // Locked shackle arch
                 let shackle_left = p.x + w * 0.32;
                 let shackle_right = p.x + w * 0.68;
                 let shackle_top = p.y + h * 0.16;
-                painter.line_segment([pos2(shackle_left, p.y + h * 0.44), pos2(shackle_left, shackle_top + h * 0.10)], stroke);
-                painter.line_segment([pos2(shackle_left, shackle_top + h * 0.10), pos2(shackle_right, shackle_top + h * 0.10)], stroke);
-                painter.line_segment([pos2(shackle_right, shackle_top + h * 0.10), pos2(shackle_right, p.y + h * 0.44)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(shackle_left, p.y + h * 0.44),
+                        pos2(shackle_left, shackle_top + h * 0.10),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(shackle_left, shackle_top + h * 0.10),
+                        pos2(shackle_right, shackle_top + h * 0.10),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(shackle_right, shackle_top + h * 0.10),
+                        pos2(shackle_right, p.y + h * 0.44),
+                    ],
+                    stroke,
+                );
                 // Keyhole
                 let cx = rect.center().x;
                 painter.circle_stroke(pos2(cx, p.y + h * 0.60), w * 0.05, stroke);
@@ -593,15 +785,36 @@ impl Icons {
             }
 
             IconKind::Unlock => {
-                let body = Rect::from_min_max(pos2(p.x + w * 0.22, p.y + h * 0.44), pos2(p.x + w * 0.78, p.y + h * 0.86));
+                let body = Rect::from_min_max(
+                    pos2(p.x + w * 0.22, p.y + h * 0.44),
+                    pos2(p.x + w * 0.78, p.y + h * 0.86),
+                );
                 painter.rect_stroke(body, CornerRadius::same(3), stroke, StrokeKind::Middle);
                 // Open shackle arch
                 let shackle_left = p.x + w * 0.32;
                 let shackle_right = p.x + w * 0.68;
                 let shackle_top = p.y + h * 0.12;
-                painter.line_segment([pos2(shackle_left, p.y + h * 0.44), pos2(shackle_left, shackle_top)], stroke);
-                painter.line_segment([pos2(shackle_left, shackle_top), pos2(shackle_right, shackle_top)], stroke);
-                painter.line_segment([pos2(shackle_right, shackle_top), pos2(shackle_right, shackle_top + h * 0.14)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(shackle_left, p.y + h * 0.44),
+                        pos2(shackle_left, shackle_top),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(shackle_left, shackle_top),
+                        pos2(shackle_right, shackle_top),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(shackle_right, shackle_top),
+                        pos2(shackle_right, shackle_top + h * 0.14),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::Layers => {
@@ -635,10 +848,34 @@ impl Icons {
                 let top = p.y + h * 0.20;
                 let bottom = p.y + h * 0.80;
 
-                painter.line_segment([pos2(left + w * 0.10, top + h * 0.20), pos2(left + w * 0.10, bottom - h * 0.12)], stroke);
-                painter.line_segment([pos2(left + w * 0.10, bottom - h * 0.12), pos2(right - w * 0.10, bottom - h * 0.12)], stroke);
-                painter.line_segment([pos2(right - w * 0.10, bottom - h * 0.12), pos2(right - w * 0.10, top + h * 0.10)], stroke);
-                painter.line_segment([pos2(right - w * 0.10, top + h * 0.10), pos2(left, top + h * 0.10)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.10, top + h * 0.20),
+                        pos2(left + w * 0.10, bottom - h * 0.12),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.10, bottom - h * 0.12),
+                        pos2(right - w * 0.10, bottom - h * 0.12),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(right - w * 0.10, bottom - h * 0.12),
+                        pos2(right - w * 0.10, top + h * 0.10),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(right - w * 0.10, top + h * 0.10),
+                        pos2(left, top + h * 0.10),
+                    ],
+                    stroke,
+                );
                 painter.line_segment([pos2(left, top + h * 0.10), pos2(left, bottom)], stroke);
                 painter.line_segment([pos2(left, bottom), pos2(right, bottom)], stroke);
                 painter.line_segment([pos2(right, bottom), pos2(right, top)], stroke);
@@ -649,8 +886,18 @@ impl Icons {
                 let r = w * 0.36;
                 painter.circle_stroke(center, r, stroke);
                 // "i" glyph
-                painter.circle_filled(pos2(center.x, center.y - h * 0.16), stroke.width * 0.85, stroke_color);
-                painter.line_segment([pos2(center.x, center.y - h * 0.05), pos2(center.x, center.y + h * 0.20)], stroke);
+                painter.circle_filled(
+                    pos2(center.x, center.y - h * 0.16),
+                    stroke.width * 0.85,
+                    stroke_color,
+                );
+                painter.line_segment(
+                    [
+                        pos2(center.x, center.y - h * 0.05),
+                        pos2(center.x, center.y + h * 0.20),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::Appearance => {
@@ -659,22 +906,60 @@ impl Icons {
                 let r = w * 0.36;
                 painter.circle_stroke(center, r, stroke);
                 // Thumb hole
-                painter.circle_filled(pos2(center.x + w * 0.16, center.y + h * 0.14), w * 0.07, stroke_color);
+                painter.circle_filled(
+                    pos2(center.x + w * 0.16, center.y + h * 0.14),
+                    w * 0.07,
+                    stroke_color,
+                );
                 // Color dots
-                painter.circle_stroke(pos2(center.x - w * 0.16, center.y - h * 0.14), w * 0.06, stroke);
-                painter.circle_stroke(pos2(center.x + w * 0.02, center.y - h * 0.22), w * 0.06, stroke);
-                painter.circle_stroke(pos2(center.x - w * 0.20, center.y + h * 0.06), w * 0.06, stroke);
+                painter.circle_stroke(
+                    pos2(center.x - w * 0.16, center.y - h * 0.14),
+                    w * 0.06,
+                    stroke,
+                );
+                painter.circle_stroke(
+                    pos2(center.x + w * 0.02, center.y - h * 0.22),
+                    w * 0.06,
+                    stroke,
+                );
+                painter.circle_stroke(
+                    pos2(center.x - w * 0.20, center.y + h * 0.06),
+                    w * 0.06,
+                    stroke,
+                );
             }
 
             IconKind::Thumbnails => {
-                let frame = Rect::from_min_max(pos2(p.x + w * 0.16, p.y + h * 0.16), pos2(p.x + w * 0.84, p.y + h * 0.84));
+                let frame = Rect::from_min_max(
+                    pos2(p.x + w * 0.16, p.y + h * 0.16),
+                    pos2(p.x + w * 0.84, p.y + h * 0.84),
+                );
                 painter.rect_stroke(frame, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 // Left thumbnail column
                 let split_x = p.x + w * 0.38;
-                painter.line_segment([pos2(split_x, frame.min.y), pos2(split_x, frame.max.y)], stroke);
+                painter.line_segment(
+                    [pos2(split_x, frame.min.y), pos2(split_x, frame.max.y)],
+                    stroke,
+                );
                 // Mini page boxes in left column
-                painter.rect_stroke(Rect::from_min_max(pos2(frame.min.x + 2.0, frame.min.y + 3.0), pos2(split_x - 2.0, frame.min.y + h * 0.30)), CornerRadius::ZERO, Stroke::new(stroke.width * 0.8, stroke_color), StrokeKind::Middle);
-                painter.rect_stroke(Rect::from_min_max(pos2(frame.min.x + 2.0, frame.min.y + h * 0.36), pos2(split_x - 2.0, frame.max.y - 3.0)), CornerRadius::ZERO, Stroke::new(stroke.width * 0.8, stroke_color), StrokeKind::Middle);
+                painter.rect_stroke(
+                    Rect::from_min_max(
+                        pos2(frame.min.x + 2.0, frame.min.y + 3.0),
+                        pos2(split_x - 2.0, frame.min.y + h * 0.30),
+                    ),
+                    CornerRadius::ZERO,
+                    Stroke::new(stroke.width * 0.8, stroke_color),
+                    StrokeKind::Middle,
+                );
+                painter.rect_stroke(
+                    Rect::from_min_max(
+                        pos2(frame.min.x + 2.0, frame.min.y + h * 0.36),
+                        pos2(split_x - 2.0, frame.max.y - 3.0),
+                    ),
+                    CornerRadius::ZERO,
+                    Stroke::new(stroke.width * 0.8, stroke_color),
+                    StrokeKind::Middle,
+                );
             }
 
             IconKind::Search => {
@@ -683,25 +968,46 @@ impl Icons {
                 painter.circle_stroke(center, r, stroke);
                 let handle_start = pos2(center.x + r * 0.707, center.y + r * 0.707);
                 let handle_end = pos2(p.x + w * 0.82, p.y + h * 0.82);
-                painter.line_segment([handle_start, handle_end], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [handle_start, handle_end],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
             }
 
             IconKind::Undo => {
                 let cx = rect.center().x;
                 let cy = rect.center().y;
-                painter.line_segment([pos2(cx - w * 0.16, cy - h * 0.18), pos2(cx - w * 0.32, cy)], stroke);
-                painter.line_segment([pos2(cx - w * 0.32, cy), pos2(cx - w * 0.16, cy + h * 0.18)], stroke);
+                painter.line_segment(
+                    [pos2(cx - w * 0.16, cy - h * 0.18), pos2(cx - w * 0.32, cy)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(cx - w * 0.32, cy), pos2(cx - w * 0.16, cy + h * 0.18)],
+                    stroke,
+                );
                 painter.line_segment([pos2(cx - w * 0.32, cy), pos2(cx + w * 0.14, cy)], stroke);
-                painter.line_segment([pos2(cx + w * 0.14, cy), pos2(cx + w * 0.24, cy + h * 0.20)], stroke);
+                painter.line_segment(
+                    [pos2(cx + w * 0.14, cy), pos2(cx + w * 0.24, cy + h * 0.20)],
+                    stroke,
+                );
             }
 
             IconKind::Redo => {
                 let cx = rect.center().x;
                 let cy = rect.center().y;
-                painter.line_segment([pos2(cx + w * 0.16, cy - h * 0.18), pos2(cx + w * 0.32, cy)], stroke);
-                painter.line_segment([pos2(cx + w * 0.32, cy), pos2(cx + w * 0.16, cy + h * 0.18)], stroke);
+                painter.line_segment(
+                    [pos2(cx + w * 0.16, cy - h * 0.18), pos2(cx + w * 0.32, cy)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(cx + w * 0.32, cy), pos2(cx + w * 0.16, cy + h * 0.18)],
+                    stroke,
+                );
                 painter.line_segment([pos2(cx + w * 0.32, cy), pos2(cx - w * 0.14, cy)], stroke);
-                painter.line_segment([pos2(cx - w * 0.14, cy), pos2(cx - w * 0.24, cy + h * 0.20)], stroke);
+                painter.line_segment(
+                    [pos2(cx - w * 0.14, cy), pos2(cx - w * 0.24, cy + h * 0.20)],
+                    stroke,
+                );
             }
 
             IconKind::ZoomIn => {
@@ -710,11 +1016,20 @@ impl Icons {
                 painter.circle_stroke(center, r, stroke);
                 let handle_start = pos2(center.x + r * 0.707, center.y + r * 0.707);
                 let handle_end = pos2(p.x + w * 0.82, p.y + h * 0.82);
-                painter.line_segment([handle_start, handle_end], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [handle_start, handle_end],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
                 // Plus inside
                 let pr = r * 0.50;
-                painter.line_segment([pos2(center.x - pr, center.y), pos2(center.x + pr, center.y)], stroke);
-                painter.line_segment([pos2(center.x, center.y - pr), pos2(center.x, center.y + pr)], stroke);
+                painter.line_segment(
+                    [pos2(center.x - pr, center.y), pos2(center.x + pr, center.y)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(center.x, center.y - pr), pos2(center.x, center.y + pr)],
+                    stroke,
+                );
             }
 
             IconKind::ZoomOut => {
@@ -723,10 +1038,16 @@ impl Icons {
                 painter.circle_stroke(center, r, stroke);
                 let handle_start = pos2(center.x + r * 0.707, center.y + r * 0.707);
                 let handle_end = pos2(p.x + w * 0.82, p.y + h * 0.82);
-                painter.line_segment([handle_start, handle_end], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [handle_start, handle_end],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
                 // Minus inside
                 let pr = r * 0.50;
-                painter.line_segment([pos2(center.x - pr, center.y), pos2(center.x + pr, center.y)], stroke);
+                painter.line_segment(
+                    [pos2(center.x - pr, center.y), pos2(center.x + pr, center.y)],
+                    stroke,
+                );
             }
 
             IconKind::Close => {
@@ -767,13 +1088,22 @@ impl Icons {
                 for i in 0..pts.len() - 1 {
                     painter.line_segment([pts[i], pts[i + 1]], stroke);
                 }
-                painter.line_segment([pos2(right - fold, top), pos2(right - fold, top + fold)], stroke);
-                painter.line_segment([pos2(right - fold, top + fold), pos2(right, top + fold)], stroke);
+                painter.line_segment(
+                    [pos2(right - fold, top), pos2(right - fold, top + fold)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(right - fold, top + fold), pos2(right, top + fold)],
+                    stroke,
+                );
                 // Outward export curved/directed arrow
                 let ax = p.x + w * 0.45;
                 let ay = p.y + h * 0.52;
                 let arx = p.x + w * 0.88;
-                painter.line_segment([pos2(ax, ay), pos2(arx, ay)], Stroke::new(stroke.width * 1.2, stroke_color));
+                painter.line_segment(
+                    [pos2(ax, ay), pos2(arx, ay)],
+                    Stroke::new(stroke.width * 1.2, stroke_color),
+                );
                 painter.line_segment([pos2(arx, ay), pos2(arx - w * 0.14, ay - h * 0.12)], stroke);
                 painter.line_segment([pos2(arx, ay), pos2(arx - w * 0.14, ay + h * 0.12)], stroke);
             }
@@ -781,7 +1111,10 @@ impl Icons {
             IconKind::FillAndSign => {
                 let tip = pos2(p.x + w * 0.28, p.y + h * 0.68);
                 let top_nib = pos2(p.x + w * 0.72, p.y + h * 0.18);
-                painter.line_segment([tip, top_nib], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [tip, top_nib],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
                 painter.line_segment([pos2(p.x + w * 0.24, p.y + h * 0.62), tip], stroke);
                 painter.line_segment([pos2(p.x + w * 0.34, p.y + h * 0.72), tip], stroke);
                 let s_pts = [
@@ -814,12 +1147,24 @@ impl Icons {
                 for i in 0..pts.len() - 1 {
                     painter.line_segment([pts[i], pts[i + 1]], stroke);
                 }
-                painter.line_segment([pos2(right - fold, top), pos2(right - fold, top + fold)], stroke);
-                painter.line_segment([pos2(right - fold, top + fold), pos2(right, top + fold)], stroke);
+                painter.line_segment(
+                    [pos2(right - fold, top), pos2(right - fold, top + fold)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(right - fold, top + fold), pos2(right, top + fold)],
+                    stroke,
+                );
                 let p_tip = pos2(p.x + w * 0.56, p.y + h * 0.78);
                 let p_top = pos2(p.x + w * 0.84, p.y + h * 0.48);
-                painter.line_segment([p_tip, p_top], Stroke::new(stroke.width * 1.4, stroke_color));
-                painter.line_segment([pos2(p_tip.x - w * 0.05, p_tip.y + h * 0.05), p_tip], stroke);
+                painter.line_segment(
+                    [p_tip, p_top],
+                    Stroke::new(stroke.width * 1.4, stroke_color),
+                );
+                painter.line_segment(
+                    [pos2(p_tip.x - w * 0.05, p_tip.y + h * 0.05), p_tip],
+                    stroke,
+                );
             }
 
             IconKind::CreatePdf => {
@@ -840,22 +1185,52 @@ impl Icons {
                 painter.line_segment([pts[1], pts[2]], stroke);
                 painter.line_segment([pts[2], pts[3]], stroke);
                 painter.line_segment([pts[4], pts[5]], stroke);
-                painter.line_segment([pos2(right - fold, top), pos2(right - fold, top + fold)], stroke);
-                painter.line_segment([pos2(right - fold, top + fold), pos2(right, top + fold)], stroke);
+                painter.line_segment(
+                    [pos2(right - fold, top), pos2(right - fold, top + fold)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(right - fold, top + fold), pos2(right, top + fold)],
+                    stroke,
+                );
                 let cx = p.x + w * 0.68;
                 let cy = p.y + h * 0.74;
                 let pr = w * 0.16;
-                painter.line_segment([pos2(cx - pr, cy), pos2(cx + pr, cy)], Stroke::new(stroke.width * 1.3, stroke_color));
-                painter.line_segment([pos2(cx, cy - pr), pos2(cx, cy + pr)], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [pos2(cx - pr, cy), pos2(cx + pr, cy)],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
+                painter.line_segment(
+                    [pos2(cx, cy - pr), pos2(cx, cy + pr)],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
             }
 
             IconKind::CombineFiles => {
-                let r1 = Rect::from_min_size(pos2(p.x + w * 0.16, p.y + h * 0.24), vec2(w * 0.48, h * 0.60));
-                let r2 = Rect::from_min_size(pos2(p.x + w * 0.36, p.y + h * 0.14), vec2(w * 0.48, h * 0.60));
+                let r1 = Rect::from_min_size(
+                    pos2(p.x + w * 0.16, p.y + h * 0.24),
+                    vec2(w * 0.48, h * 0.60),
+                );
+                let r2 = Rect::from_min_size(
+                    pos2(p.x + w * 0.36, p.y + h * 0.14),
+                    vec2(w * 0.48, h * 0.60),
+                );
                 painter.rect_stroke(r2, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 painter.rect_stroke(r1, CornerRadius::same(2), stroke, StrokeKind::Middle);
-                painter.line_segment([pos2(r1.min.x + w * 0.08, r1.min.y + h * 0.20), pos2(r1.max.x - w * 0.08, r1.min.y + h * 0.20)], stroke);
-                painter.line_segment([pos2(r1.min.x + w * 0.08, r1.min.y + h * 0.38), pos2(r1.max.x - w * 0.14, r1.min.y + h * 0.38)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(r1.min.x + w * 0.08, r1.min.y + h * 0.20),
+                        pos2(r1.max.x - w * 0.08, r1.min.y + h * 0.20),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(r1.min.x + w * 0.08, r1.min.y + h * 0.38),
+                        pos2(r1.max.x - w * 0.14, r1.min.y + h * 0.38),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::OrganizePages => {
@@ -869,7 +1244,12 @@ impl Icons {
                         let rx = start_x + (col as f32) * (sq_w + gap);
                         let ry = start_y + (row as f32) * (sq_h + gap);
                         let sq_rect = Rect::from_min_size(pos2(rx, ry), vec2(sq_w, sq_h));
-                        painter.rect_stroke(sq_rect, CornerRadius::same(3), stroke, StrokeKind::Middle);
+                        painter.rect_stroke(
+                            sq_rect,
+                            CornerRadius::same(3),
+                            stroke,
+                            StrokeKind::Middle,
+                        );
                     }
                 }
             }
@@ -896,8 +1276,20 @@ impl Icons {
                 for i in 0..bubble_pts.len() - 1 {
                     painter.line_segment([bubble_pts[i], bubble_pts[i + 1]], stroke);
                 }
-                painter.line_segment([pos2(b_left + w * 0.12, b_top + h * 0.18), pos2(b_right - w * 0.12, b_top + h * 0.18)], stroke);
-                painter.line_segment([pos2(b_left + w * 0.12, b_top + h * 0.32), pos2(b_right - w * 0.24, b_top + h * 0.32)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(b_left + w * 0.12, b_top + h * 0.18),
+                        pos2(b_right - w * 0.12, b_top + h * 0.18),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(b_left + w * 0.12, b_top + h * 0.32),
+                        pos2(b_right - w * 0.24, b_top + h * 0.32),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::ScanOcr => {
@@ -914,9 +1306,27 @@ impl Icons {
                 painter.line_segment([pos2(x0, y1), pos2(x0 + d, y1)], stroke);
                 painter.line_segment([pos2(x1 - d, y1), pos2(x1, y1)], stroke);
                 painter.line_segment([pos2(x1, y1), pos2(x1, y1 - d)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.30, p.y + h * 0.38), pos2(p.x + w * 0.70, p.y + h * 0.38)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.30, p.y + h * 0.50), pos2(p.x + w * 0.70, p.y + h * 0.50)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.30, p.y + h * 0.62), pos2(p.x + w * 0.58, p.y + h * 0.62)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.30, p.y + h * 0.38),
+                        pos2(p.x + w * 0.70, p.y + h * 0.38),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.30, p.y + h * 0.50),
+                        pos2(p.x + w * 0.70, p.y + h * 0.50),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.30, p.y + h * 0.62),
+                        pos2(p.x + w * 0.58, p.y + h * 0.62),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::ProtectPdf => {
@@ -944,7 +1354,10 @@ impl Icons {
             }
 
             IconKind::RedactPdf => {
-                let r = Rect::from_min_max(pos2(p.x + w * 0.16, p.y + h * 0.30), pos2(p.x + w * 0.84, p.y + h * 0.70));
+                let r = Rect::from_min_max(
+                    pos2(p.x + w * 0.16, p.y + h * 0.30),
+                    pos2(p.x + w * 0.84, p.y + h * 0.70),
+                );
                 painter.rect_stroke(r, CornerRadius::same(3), stroke, StrokeKind::Middle);
                 painter.rect_filled(r.shrink(2.0), CornerRadius::same(2), stroke_color);
             }
@@ -969,14 +1382,23 @@ impl Icons {
                 let cx = rect.center().x;
                 let ay = p.y + h * 0.32;
                 let aby = p.y + h * 0.62;
-                painter.line_segment([pos2(cx, ay), pos2(cx, aby)], Stroke::new(stroke.width * 1.2, stroke_color));
+                painter.line_segment(
+                    [pos2(cx, ay), pos2(cx, aby)],
+                    Stroke::new(stroke.width * 1.2, stroke_color),
+                );
                 painter.line_segment([pos2(cx, aby), pos2(cx - w * 0.12, aby - h * 0.10)], stroke);
                 painter.line_segment([pos2(cx, aby), pos2(cx + w * 0.12, aby - h * 0.10)], stroke);
-                painter.line_segment([pos2(left, p.y + h * 0.86), pos2(right, p.y + h * 0.86)], Stroke::new(stroke.width * 1.2, stroke_color));
+                painter.line_segment(
+                    [pos2(left, p.y + h * 0.86), pos2(right, p.y + h * 0.86)],
+                    Stroke::new(stroke.width * 1.2, stroke_color),
+                );
             }
 
             IconKind::PrepareForm => {
-                let box_rect = Rect::from_min_max(pos2(p.x + w * 0.14, p.y + h * 0.30), pos2(p.x + w * 0.86, p.y + h * 0.70));
+                let box_rect = Rect::from_min_max(
+                    pos2(p.x + w * 0.14, p.y + h * 0.30),
+                    pos2(p.x + w * 0.86, p.y + h * 0.70),
+                );
                 painter.rect_stroke(box_rect, CornerRadius::same(4), stroke, StrokeKind::Middle);
                 let cx = p.x + w * 0.35;
                 let cy1 = p.y + h * 0.38;
@@ -984,16 +1406,31 @@ impl Icons {
                 painter.line_segment([pos2(cx, cy1), pos2(cx, cy2)], stroke);
                 painter.line_segment([pos2(cx - w * 0.06, cy1), pos2(cx + w * 0.06, cy1)], stroke);
                 painter.line_segment([pos2(cx - w * 0.06, cy2), pos2(cx + w * 0.06, cy2)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.50, p.y + h * 0.50), pos2(p.x + w * 0.74, p.y + h * 0.50)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.50, p.y + h * 0.50),
+                        pos2(p.x + w * 0.74, p.y + h * 0.50),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::AddStamp => {
                 let cx = rect.center().x;
                 painter.circle_stroke(pos2(cx, p.y + h * 0.22), w * 0.08, stroke);
                 painter.line_segment([pos2(cx, p.y + h * 0.30), pos2(cx, p.y + h * 0.54)], stroke);
-                let b_rect = Rect::from_min_max(pos2(p.x + w * 0.20, p.y + h * 0.54), pos2(p.x + w * 0.80, p.y + h * 0.76));
+                let b_rect = Rect::from_min_max(
+                    pos2(p.x + w * 0.20, p.y + h * 0.54),
+                    pos2(p.x + w * 0.80, p.y + h * 0.76),
+                );
                 painter.rect_stroke(b_rect, CornerRadius::same(2), stroke, StrokeKind::Middle);
-                painter.line_segment([pos2(p.x + w * 0.16, p.y + h * 0.84), pos2(p.x + w * 0.84, p.y + h * 0.84)], Stroke::new(stroke.width * 1.2, stroke_color));
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.16, p.y + h * 0.84),
+                        pos2(p.x + w * 0.84, p.y + h * 0.84),
+                    ],
+                    Stroke::new(stroke.width * 1.2, stroke_color),
+                );
             }
 
             IconKind::UseCertificate => {
@@ -1006,46 +1443,129 @@ impl Icons {
                 let c3 = pos2(cx + w * 0.12, cy - h * 0.08);
                 painter.line_segment([c1, c2], stroke);
                 painter.line_segment([c2, c3], stroke);
-                painter.line_segment([pos2(cx - w * 0.10, cy + r - 1.0), pos2(cx - w * 0.18, p.y + h * 0.86)], stroke);
-                painter.line_segment([pos2(cx - w * 0.18, p.y + h * 0.86), pos2(cx - w * 0.04, p.y + h * 0.78)], stroke);
-                painter.line_segment([pos2(cx + w * 0.10, cy + r - 1.0), pos2(cx + w * 0.18, p.y + h * 0.86)], stroke);
-                painter.line_segment([pos2(cx + w * 0.18, p.y + h * 0.86), pos2(cx + w * 0.04, p.y + h * 0.78)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(cx - w * 0.10, cy + r - 1.0),
+                        pos2(cx - w * 0.18, p.y + h * 0.86),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(cx - w * 0.18, p.y + h * 0.86),
+                        pos2(cx - w * 0.04, p.y + h * 0.78),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(cx + w * 0.10, cy + r - 1.0),
+                        pos2(cx + w * 0.18, p.y + h * 0.86),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(cx + w * 0.18, p.y + h * 0.86),
+                        pos2(cx + w * 0.04, p.y + h * 0.78),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::PrintProduction => {
-                let body = Rect::from_min_max(pos2(p.x + w * 0.18, p.y + h * 0.36), pos2(p.x + w * 0.82, p.y + h * 0.72));
+                let body = Rect::from_min_max(
+                    pos2(p.x + w * 0.18, p.y + h * 0.36),
+                    pos2(p.x + w * 0.82, p.y + h * 0.72),
+                );
                 painter.rect_stroke(body, CornerRadius::same(3), stroke, StrokeKind::Middle);
-                painter.rect_stroke(Rect::from_min_max(pos2(p.x + w * 0.30, p.y + h * 0.18), pos2(p.x + w * 0.70, p.y + h * 0.36)), CornerRadius::ZERO, stroke, StrokeKind::Middle);
-                painter.line_segment([pos2(p.x + w * 0.28, p.y + h * 0.72), pos2(p.x + w * 0.28, p.y + h * 0.86)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.28, p.y + h * 0.86), pos2(p.x + w * 0.72, p.y + h * 0.86)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.72, p.y + h * 0.86), pos2(p.x + w * 0.72, p.y + h * 0.72)], stroke);
+                painter.rect_stroke(
+                    Rect::from_min_max(
+                        pos2(p.x + w * 0.30, p.y + h * 0.18),
+                        pos2(p.x + w * 0.70, p.y + h * 0.36),
+                    ),
+                    CornerRadius::ZERO,
+                    stroke,
+                    StrokeKind::Middle,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.28, p.y + h * 0.72),
+                        pos2(p.x + w * 0.28, p.y + h * 0.86),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.28, p.y + h * 0.86),
+                        pos2(p.x + w * 0.72, p.y + h * 0.86),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.72, p.y + h * 0.86),
+                        pos2(p.x + w * 0.72, p.y + h * 0.72),
+                    ],
+                    stroke,
+                );
                 painter.circle_filled(pos2(p.x + w * 0.72, p.y + h * 0.46), w * 0.03, stroke_color);
             }
 
             IconKind::MeasureObjects => {
                 let r_start = pos2(p.x + w * 0.20, p.y + h * 0.80);
                 let r_end = pos2(p.x + w * 0.80, p.y + h * 0.20);
-                painter.line_segment([r_start, r_end], Stroke::new(stroke.width * 1.5, stroke_color));
+                painter.line_segment(
+                    [r_start, r_end],
+                    Stroke::new(stroke.width * 1.5, stroke_color),
+                );
                 for i in 1..5 {
                     let t = (i as f32) / 5.0;
                     let mx = r_start.x + (r_end.x - r_start.x) * t;
                     let my = r_start.y + (r_end.y - r_start.y) * t;
                     let len = if i % 2 == 0 { w * 0.09 } else { w * 0.05 };
-                    painter.line_segment([pos2(mx, my), pos2(mx - len * 0.707, my - len * 0.707)], stroke);
+                    painter.line_segment(
+                        [pos2(mx, my), pos2(mx - len * 0.707, my - len * 0.707)],
+                        stroke,
+                    );
                 }
             }
 
             IconKind::CompareFiles => {
-                let r1 = Rect::from_min_size(pos2(p.x + w * 0.16, p.y + h * 0.18), vec2(w * 0.32, h * 0.50));
-                let r2 = Rect::from_min_size(pos2(p.x + w * 0.52, p.y + h * 0.18), vec2(w * 0.32, h * 0.50));
+                let r1 = Rect::from_min_size(
+                    pos2(p.x + w * 0.16, p.y + h * 0.18),
+                    vec2(w * 0.32, h * 0.50),
+                );
+                let r2 = Rect::from_min_size(
+                    pos2(p.x + w * 0.52, p.y + h * 0.18),
+                    vec2(w * 0.32, h * 0.50),
+                );
                 painter.rect_stroke(r1, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 painter.rect_stroke(r2, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 let ay1 = p.y + h * 0.78;
                 let ay2 = p.y + h * 0.88;
-                painter.line_segment([pos2(p.x + w * 0.24, ay1), pos2(p.x + w * 0.76, ay1)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.76, ay1), pos2(p.x + w * 0.68, ay1 - h * 0.06)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.76, ay2), pos2(p.x + w * 0.24, ay2)], stroke);
-                painter.line_segment([pos2(p.x + w * 0.24, ay2), pos2(p.x + w * 0.32, ay2 + h * 0.06)], stroke);
+                painter.line_segment(
+                    [pos2(p.x + w * 0.24, ay1), pos2(p.x + w * 0.76, ay1)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.76, ay1),
+                        pos2(p.x + w * 0.68, ay1 - h * 0.06),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(p.x + w * 0.76, ay2), pos2(p.x + w * 0.24, ay2)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(p.x + w * 0.24, ay2),
+                        pos2(p.x + w * 0.32, ay2 + h * 0.06),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::GuidedActions => {
@@ -1054,8 +1574,15 @@ impl Icons {
                 let right = p.x + w * 0.82;
                 for i in 0..3 {
                     let y = p.y + h * (0.28 + (i as f32) * 0.24);
-                    painter.line_segment([pos2(left, y), pos2(left + w * 0.06, y + h * 0.06)], stroke);
-                    painter.line_segment([pos2(left + w * 0.06, y + h * 0.06), pos2(left + w * 0.16, y - h * 0.06)], stroke);
+                    painter
+                        .line_segment([pos2(left, y), pos2(left + w * 0.06, y + h * 0.06)], stroke);
+                    painter.line_segment(
+                        [
+                            pos2(left + w * 0.06, y + h * 0.06),
+                            pos2(left + w * 0.16, y - h * 0.06),
+                        ],
+                        stroke,
+                    );
                     painter.line_segment([pos2(text_start, y), pos2(right, y)], stroke);
                 }
             }
@@ -1065,10 +1592,22 @@ impl Icons {
                 let cy = rect.center().y;
                 painter.circle_stroke(pos2(cx, cy), w * 0.38, stroke);
                 painter.circle_filled(pos2(cx, cy - h * 0.16), w * 0.05, stroke_color);
-                painter.line_segment([pos2(cx - w * 0.20, cy - h * 0.04), pos2(cx + w * 0.20, cy - h * 0.04)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(cx - w * 0.20, cy - h * 0.04),
+                        pos2(cx + w * 0.20, cy - h * 0.04),
+                    ],
+                    stroke,
+                );
                 painter.line_segment([pos2(cx, cy - h * 0.08), pos2(cx, cy + h * 0.12)], stroke);
-                painter.line_segment([pos2(cx, cy + h * 0.12), pos2(cx - w * 0.12, cy + h * 0.28)], stroke);
-                painter.line_segment([pos2(cx, cy + h * 0.12), pos2(cx + w * 0.12, cy + h * 0.28)], stroke);
+                painter.line_segment(
+                    [pos2(cx, cy + h * 0.12), pos2(cx - w * 0.12, cy + h * 0.28)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(cx, cy + h * 0.12), pos2(cx + w * 0.12, cy + h * 0.28)],
+                    stroke,
+                );
             }
 
             IconKind::PdfStandards => {
@@ -1091,8 +1630,17 @@ impl Icons {
                 let cx = rect.center().x;
                 let cy = rect.center().y + h * 0.06;
                 painter.circle_stroke(pos2(cx, cy), w * 0.14, stroke);
-                painter.line_segment([pos2(cx - w * 0.06, cy), pos2(cx - w * 0.01, cy + h * 0.05)], stroke);
-                painter.line_segment([pos2(cx - w * 0.01, cy + h * 0.05), pos2(cx + w * 0.07, cy - h * 0.04)], stroke);
+                painter.line_segment(
+                    [pos2(cx - w * 0.06, cy), pos2(cx - w * 0.01, cy + h * 0.05)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(cx - w * 0.01, cy + h * 0.05),
+                        pos2(cx + w * 0.07, cy - h * 0.04),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::SearchIndex => {
@@ -1116,7 +1664,13 @@ impl Icons {
                 let mag_c = pos2(p.x + w * 0.65, p.y + h * 0.65);
                 let mr = w * 0.14;
                 painter.circle_stroke(mag_c, mr, stroke);
-                painter.line_segment([pos2(mag_c.x + mr * 0.707, mag_c.y + mr * 0.707), pos2(p.x + w * 0.86, p.y + h * 0.86)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(mag_c.x + mr * 0.707, mag_c.y + mr * 0.707),
+                        pos2(p.x + w * 0.86, p.y + h * 0.86),
+                    ],
+                    stroke,
+                );
             }
 
             IconKind::JavaScript => {
@@ -1127,18 +1681,42 @@ impl Icons {
                 let ymid = p.y + h * 0.50;
                 let y2 = p.y + h * 0.80;
                 painter.line_segment([pos2(bx2, y1), pos2(bx1, y1 + h * 0.08)], stroke);
-                painter.line_segment([pos2(bx1, y1 + h * 0.08), pos2(bx1, ymid - h * 0.06)], stroke);
-                painter.line_segment([pos2(bx1, ymid - h * 0.06), pos2(bx1 - w * 0.06, ymid)], stroke);
-                painter.line_segment([pos2(bx1 - w * 0.06, ymid), pos2(bx1, ymid + h * 0.06)], stroke);
-                painter.line_segment([pos2(bx1, ymid + h * 0.06), pos2(bx1, y2 - h * 0.08)], stroke);
+                painter.line_segment(
+                    [pos2(bx1, y1 + h * 0.08), pos2(bx1, ymid - h * 0.06)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(bx1, ymid - h * 0.06), pos2(bx1 - w * 0.06, ymid)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(bx1 - w * 0.06, ymid), pos2(bx1, ymid + h * 0.06)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(bx1, ymid + h * 0.06), pos2(bx1, y2 - h * 0.08)],
+                    stroke,
+                );
                 painter.line_segment([pos2(bx1, y2 - h * 0.08), pos2(bx2, y2)], stroke);
                 let rx1 = cx + w * 0.24;
                 let rx2 = cx + w * 0.12;
                 painter.line_segment([pos2(rx2, y1), pos2(rx1, y1 + h * 0.08)], stroke);
-                painter.line_segment([pos2(rx1, y1 + h * 0.08), pos2(rx1, ymid - h * 0.06)], stroke);
-                painter.line_segment([pos2(rx1, ymid - h * 0.06), pos2(rx1 + w * 0.06, ymid)], stroke);
-                painter.line_segment([pos2(rx1 + w * 0.06, ymid), pos2(rx1, ymid + h * 0.06)], stroke);
-                painter.line_segment([pos2(rx1, ymid + h * 0.06), pos2(rx1, y2 - h * 0.08)], stroke);
+                painter.line_segment(
+                    [pos2(rx1, y1 + h * 0.08), pos2(rx1, ymid - h * 0.06)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(rx1, ymid - h * 0.06), pos2(rx1 + w * 0.06, ymid)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(rx1 + w * 0.06, ymid), pos2(rx1, ymid + h * 0.06)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(rx1, ymid + h * 0.06), pos2(rx1, y2 - h * 0.08)],
+                    stroke,
+                );
                 painter.line_segment([pos2(rx1, y2 - h * 0.08), pos2(rx2, y2)], stroke);
             }
 
@@ -1148,12 +1726,36 @@ impl Icons {
                 let top = p.y + h * 0.28;
                 let bottom = p.y + h * 0.78;
                 painter.line_segment([pos2(left, top), pos2(left + w * 0.28, top)], stroke);
-                painter.line_segment([pos2(left + w * 0.28, top), pos2(left + w * 0.36, top - h * 0.08)], stroke);
-                painter.line_segment([pos2(left + w * 0.36, top - h * 0.08), pos2(left + w * 0.60, top - h * 0.08)], stroke);
-                painter.line_segment([pos2(left + w * 0.60, top - h * 0.08), pos2(left + w * 0.66, top)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.28, top),
+                        pos2(left + w * 0.36, top - h * 0.08),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.36, top - h * 0.08),
+                        pos2(left + w * 0.60, top - h * 0.08),
+                    ],
+                    stroke,
+                );
+                painter.line_segment(
+                    [
+                        pos2(left + w * 0.60, top - h * 0.08),
+                        pos2(left + w * 0.66, top),
+                    ],
+                    stroke,
+                );
                 painter.line_segment([pos2(left + w * 0.66, top), pos2(right, top)], stroke);
                 painter.line_segment([pos2(right, top), pos2(right - w * 0.06, bottom)], stroke);
-                painter.line_segment([pos2(right - w * 0.06, bottom), pos2(left + w * 0.06, bottom)], stroke);
+                painter.line_segment(
+                    [
+                        pos2(right - w * 0.06, bottom),
+                        pos2(left + w * 0.06, bottom),
+                    ],
+                    stroke,
+                );
                 painter.line_segment([pos2(left + w * 0.06, bottom), pos2(left, top)], stroke);
             }
 
@@ -1163,17 +1765,30 @@ impl Icons {
                 let top = p.y + h * 0.20;
                 let bot = p.y + h * 0.80;
                 let cx = (left + right) * 0.5;
-                painter.line_segment([pos2(left, top), pos2(right, top)], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [pos2(left, top), pos2(right, top)],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
                 painter.line_segment([pos2(left, top), pos2(left, top + h * 0.08)], stroke);
                 painter.line_segment([pos2(right, top), pos2(right, top + h * 0.08)], stroke);
-                painter.line_segment([pos2(cx, top), pos2(cx, bot)], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [pos2(cx, top), pos2(cx, bot)],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
                 painter.line_segment([pos2(cx - w * 0.12, bot), pos2(cx + w * 0.12, bot)], stroke);
             }
 
             IconKind::AddImage => {
-                let frame = Rect::from_min_max(pos2(p.x + w * 0.16, p.y + h * 0.18), pos2(p.x + w * 0.84, p.y + h * 0.82));
+                let frame = Rect::from_min_max(
+                    pos2(p.x + w * 0.16, p.y + h * 0.18),
+                    pos2(p.x + w * 0.84, p.y + h * 0.82),
+                );
                 painter.rect_stroke(frame, CornerRadius::same(3), stroke, StrokeKind::Middle);
-                painter.circle_stroke(pos2(frame.min.x + w * 0.18, frame.min.y + h * 0.18), w * 0.06, stroke);
+                painter.circle_stroke(
+                    pos2(frame.min.x + w * 0.18, frame.min.y + h * 0.18),
+                    w * 0.06,
+                    stroke,
+                );
                 let m1 = pos2(frame.min.x, frame.max.y - h * 0.12);
                 let m2 = pos2(frame.min.x + w * 0.26, frame.min.y + h * 0.36);
                 let m3 = pos2(frame.min.x + w * 0.44, frame.max.y - h * 0.08);
@@ -1192,8 +1807,14 @@ impl Icons {
                 let bot = p.y + h * 0.82;
                 painter.line_segment([pos2(left, top), pos2(left, bot)], stroke);
                 painter.line_segment([pos2(right, top), pos2(right, bot)], stroke);
-                painter.line_segment([pos2(left, top + h * 0.12), pos2(right, top + h * 0.12)], Stroke::new(stroke.width * 1.3, stroke_color));
-                painter.line_segment([pos2(left, bot - h * 0.12), pos2(right, bot - h * 0.12)], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [pos2(left, top + h * 0.12), pos2(right, top + h * 0.12)],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
+                painter.line_segment(
+                    [pos2(left, bot - h * 0.12), pos2(right, bot - h * 0.12)],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
             }
 
             IconKind::Watermark => {
@@ -1201,19 +1822,36 @@ impl Icons {
                 let right = p.x + w * 0.80;
                 let top = p.y + h * 0.20;
                 let bot = p.y + h * 0.80;
-                painter.rect_stroke(Rect::from_min_max(pos2(left, top), pos2(right, bot)), CornerRadius::same(3), stroke, StrokeKind::Middle);
+                painter.rect_stroke(
+                    Rect::from_min_max(pos2(left, top), pos2(right, bot)),
+                    CornerRadius::same(3),
+                    stroke,
+                    StrokeKind::Middle,
+                );
                 let cx = rect.center().x;
                 painter.circle_stroke(pos2(cx, top + h * 0.18), w * 0.07, stroke);
                 painter.line_segment([pos2(cx, top + h * 0.25), pos2(cx, bot - h * 0.18)], stroke);
-                painter.line_segment([pos2(cx - w * 0.18, bot - h * 0.18), pos2(cx + w * 0.18, bot - h * 0.18)], Stroke::new(stroke.width * 1.3, stroke_color));
+                painter.line_segment(
+                    [
+                        pos2(cx - w * 0.18, bot - h * 0.18),
+                        pos2(cx + w * 0.18, bot - h * 0.18),
+                    ],
+                    Stroke::new(stroke.width * 1.3, stroke_color),
+                );
             }
 
             IconKind::Link => {
                 let cx = rect.center().x;
                 let cy = rect.center().y;
                 let d = w * 0.14;
-                let r1 = Rect::from_center_size(pos2(cx - d * 0.6, cy - d * 0.6), vec2(w * 0.36, h * 0.18));
-                let r2 = Rect::from_center_size(pos2(cx + d * 0.6, cy + d * 0.6), vec2(w * 0.36, h * 0.18));
+                let r1 = Rect::from_center_size(
+                    pos2(cx - d * 0.6, cy - d * 0.6),
+                    vec2(w * 0.36, h * 0.18),
+                );
+                let r2 = Rect::from_center_size(
+                    pos2(cx + d * 0.6, cy + d * 0.6),
+                    vec2(w * 0.36, h * 0.18),
+                );
                 painter.rect_stroke(r1, CornerRadius::same(4), stroke, StrokeKind::Middle);
                 painter.rect_stroke(r2, CornerRadius::same(4), stroke, StrokeKind::Middle);
             }
@@ -1234,7 +1872,10 @@ impl Icons {
             }
 
             IconKind::Spreadsheet => {
-                let frame = Rect::from_min_max(pos2(p.x + w * 0.16, p.y + h * 0.18), pos2(p.x + w * 0.84, p.y + h * 0.82));
+                let frame = Rect::from_min_max(
+                    pos2(p.x + w * 0.16, p.y + h * 0.18),
+                    pos2(p.x + w * 0.84, p.y + h * 0.82),
+                );
                 painter.rect_stroke(frame, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 let mid_x = frame.center().x;
                 let y1 = frame.min.y + frame.height() * 0.33;
@@ -1245,13 +1886,22 @@ impl Icons {
             }
 
             IconKind::Presentation => {
-                let frame = Rect::from_min_max(pos2(p.x + w * 0.16, p.y + h * 0.18), pos2(p.x + w * 0.84, p.y + h * 0.64));
+                let frame = Rect::from_min_max(
+                    pos2(p.x + w * 0.16, p.y + h * 0.18),
+                    pos2(p.x + w * 0.84, p.y + h * 0.64),
+                );
                 painter.rect_stroke(frame, CornerRadius::same(2), stroke, StrokeKind::Middle);
                 let cx = frame.center().x;
                 let sy = frame.max.y;
                 painter.line_segment([pos2(cx, sy), pos2(cx, sy + h * 0.10)], stroke);
-                painter.line_segment([pos2(cx, sy + h * 0.10), pos2(cx - w * 0.16, sy + h * 0.22)], stroke);
-                painter.line_segment([pos2(cx, sy + h * 0.10), pos2(cx + w * 0.16, sy + h * 0.22)], stroke);
+                painter.line_segment(
+                    [pos2(cx, sy + h * 0.10), pos2(cx - w * 0.16, sy + h * 0.22)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [pos2(cx, sy + h * 0.10), pos2(cx + w * 0.16, sy + h * 0.22)],
+                    stroke,
+                );
             }
 
             IconKind::Dot => {
@@ -1296,7 +1946,10 @@ impl Icons {
                 let ax = p.x + w * 0.50;
                 let ay = p.y + h * 0.50;
                 let arx = p.x + w * 0.86;
-                painter.line_segment([pos2(ax, ay), pos2(arx, ay)], Stroke::new(stroke.width * 1.2, stroke_color));
+                painter.line_segment(
+                    [pos2(ax, ay), pos2(arx, ay)],
+                    Stroke::new(stroke.width * 1.2, stroke_color),
+                );
                 painter.line_segment([pos2(arx, ay), pos2(arx - w * 0.12, ay - h * 0.10)], stroke);
                 painter.line_segment([pos2(arx, ay), pos2(arx - w * 0.12, ay + h * 0.10)], stroke);
             }

@@ -2,6 +2,8 @@
 jobs = 4
 
 [target.x86_64-pc-windows-gnu]
+linker = "C:/Users/saifu/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin/gcc.exe"
+ar = "C:/Users/saifu/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.UCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin/ar.exe"
 rustflags = ["--cfg", "getrandom_backend=\"windows_legacy\""]
 
 [profile.test]

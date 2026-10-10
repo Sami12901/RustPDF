@@ -53,10 +53,23 @@ cargo test -p rustpdf-forms
   - Delete pages and verify failure when attempting to delete the final page.
   - Combine multiple documents and verify total page count.
   - Split document by N pages and verify output part count.
+- **Content Editing & Text Replacement (`rustpdf-edit`)**:
+  - `test_search_and_replace_text_in_page_tj`: Validates AST operand parsing and text substitution in single-string `Tj` operators.
+  - `test_search_and_replace_text_in_page_tj_array`: Validates text replacement inside array-based `TJ` kerning sequences without corrupting kerning integers.
+  - `test_search_and_replace_unicode_roundtrip`: Verifies Unicode insertion using UTF-16BE Big-Endian BOM literal encoding.
+  - `test_replace_specific_text_block_in_place`: Verifies that targeting a specific `op_index` modifies only the intended block and leaves duplicate text untouched.
+  - `test_replace_text_block_overlay`: Validates background-masked text replacement fallback.
+- **Document Optimization & Compression (`rustpdf-edit`)**:
+  - `test_compress_document_with_uncompressed_stream`: Verifies Flate stream re-compression and unreachable orphan object pruning from trailer `/Root`.
+- **Security & Integrity (`rustpdf-cos`)**:
+  - `test_protect_document_rejects_pseudo_encryption`: Asserts that pseudo-encryption dictionaries are rejected to prevent false security.
+- **Forms & Appearance (`rustpdf-forms`)**:
+  - Form editing verifies `/NeedAppearances true` is set on AcroForm dictionary to trigger viewer rendering.
 - **Safe Saving**:
   - Atomic save writes to temp file and replaces target atomically.
   - Verification fails if output does not begin with `%PDF` or is corrupted.
-  - Undo stack restores document to previous byte-for-byte state.
+  - Bounded undo stack restores document to previous byte-for-byte state.
 - **Theme & Thumbnails**:
   - Theme serialization and deserialization from JSON.
   - Thumbnail preset switching (Compact, Balanced, Large).
+

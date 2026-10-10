@@ -55,10 +55,7 @@ pub struct Annotation {
 }
 
 /// Adds a real PDF annotation object to the specified page in the document.
-pub fn add_annotation(
-    doc: &mut LopdfDoc,
-    annot: &Annotation,
-) -> Result<ObjectId, AnnotError> {
+pub fn add_annotation(doc: &mut LopdfDoc, annot: &Annotation) -> Result<ObjectId, AnnotError> {
     let pages = doc.get_pages();
     let page_num = (annot.page_index + 1) as u32;
     let &page_id = pages
@@ -67,7 +64,10 @@ pub fn add_annotation(
 
     let mut dict = Dictionary::new();
     dict.set(b"Type", Object::Name(b"Annot".to_vec()));
-    dict.set(b"Subtype", Object::Name(annot.annot_type.pdf_subtype().to_vec()));
+    dict.set(
+        b"Subtype",
+        Object::Name(annot.annot_type.pdf_subtype().to_vec()),
+    );
     dict.set(
         b"Rect",
         Object::Array(vec![
@@ -143,13 +143,10 @@ pub fn add_annotation(
 }
 
 /// Deletes an annotation by its ObjectId from the document.
-pub fn delete_annotation(
-    doc: &mut LopdfDoc,
-    annot_id: (u32, u16),
-) -> Result<bool, AnnotError> {
+pub fn delete_annotation(doc: &mut LopdfDoc, annot_id: (u32, u16)) -> Result<bool, AnnotError> {
     let mut removed = false;
     let pages = doc.get_pages();
-    for (_, &page_id) in &pages {
+    for &page_id in pages.values() {
         if let Ok(Object::Dictionary(ref mut page_dict)) = doc.get_object_mut(page_id) {
             if let Ok(Object::Array(ref mut annots)) = page_dict.get_mut(b"Annots") {
                 let initial_len = annots.len();
@@ -170,10 +167,7 @@ pub fn delete_annotation(
 }
 
 /// Reads all annotations from the specified page.
-pub fn get_annotations(
-    doc: &LopdfDoc,
-    page_index: usize,
-) -> Vec<Annotation> {
+pub fn get_annotations(doc: &LopdfDoc, page_index: usize) -> Vec<Annotation> {
     let pages = doc.get_pages();
     let page_num = (page_index + 1) as u32;
     let Some(&page_id) = pages.get(&page_num) else {
@@ -209,7 +203,11 @@ pub fn get_annotations(
             _ => continue,
         };
 
-        let subtype = match annot_dict.get(b"Subtype").ok().and_then(|o| o.as_name().ok()) {
+        let subtype = match annot_dict
+            .get(b"Subtype")
+            .ok()
+            .and_then(|o| o.as_name().ok())
+        {
             Some(b"Highlight") => AnnotType::Highlight,
             Some(b"Underline") => AnnotType::Underline,
             Some(b"StrikeOut") => AnnotType::StrikeOut,
@@ -241,23 +239,26 @@ pub fn get_annotations(
             _ => [1.0, 0.8, 0.0], // Default amber
         };
 
-        let contents = annot_dict
-            .get(b"Contents")
-            .ok()
-            .and_then(|o| o.as_str().ok().map(|s| String::from_utf8_lossy(s).to_string()));
+        let contents = annot_dict.get(b"Contents").ok().and_then(|o| {
+            o.as_str()
+                .ok()
+                .map(|s| String::from_utf8_lossy(s).to_string())
+        });
 
-        let author = annot_dict
-            .get(b"T")
-            .ok()
-            .and_then(|o| o.as_str().ok().map(|s| String::from_utf8_lossy(s).to_string()));
+        let author = annot_dict.get(b"T").ok().and_then(|o| {
+            o.as_str()
+                .ok()
+                .map(|s| String::from_utf8_lossy(s).to_string())
+        });
 
-        let date = annot_dict
-            .get(b"M")
-            .ok()
-            .and_then(|o| o.as_str().ok().map(|s| String::from_utf8_lossy(s).to_string()));
+        let date = annot_dict.get(b"M").ok().and_then(|o| {
+            o.as_str()
+                .ok()
+                .map(|s| String::from_utf8_lossy(s).to_string())
+        });
 
         let mut ink_paths = None;
-        if let Some(Object::Array(ref lists)) = annot_dict.get(b"InkList").ok() {
+        if let Ok(Object::Array(ref lists)) = annot_dict.get(b"InkList") {
             let mut paths = Vec::new();
             for sub_list in lists {
                 if let Ok(coords) = sub_list.as_array() {

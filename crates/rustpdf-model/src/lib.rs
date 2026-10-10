@@ -79,7 +79,10 @@ impl DocumentMetadata {
 
         let set_field = |dict: &mut Dictionary, key: &[u8], val: &Option<String>| {
             if let Some(s) = val {
-                dict.set(key, Object::String(s.as_bytes().to_vec(), StringFormat::Literal));
+                dict.set(
+                    key,
+                    Object::String(s.as_bytes().to_vec(), StringFormat::Literal),
+                );
             } else {
                 dict.remove(key);
             }
@@ -195,11 +198,7 @@ impl DocumentModel {
                 .unwrap_or(Rect::new(0.0, 0.0, 612.0, 792.0)); // Default Letter
             let crop_box = Self::parse_rect(page_dict.get(b"CropBox").ok()).unwrap_or(media_box);
 
-            let rotation = page_dict
-                .get(b"Rotate")
-                .ok()
-                .and_then(to_i64)
-                .unwrap_or(0) as i32;
+            let rotation = page_dict.get(b"Rotate").ok().and_then(to_i64).unwrap_or(0) as i32;
 
             // Dimensions account for rotation (90 or 270 swaps width and height)
             let (raw_w, raw_h) = (crop_box.width(), crop_box.height());
@@ -243,17 +242,29 @@ impl DocumentModel {
             None => return Vec::new(),
         };
 
-        let outlines_ref = match catalog.get(b"Outlines").ok().and_then(|o| o.as_reference().ok()) {
+        let outlines_ref = match catalog
+            .get(b"Outlines")
+            .ok()
+            .and_then(|o| o.as_reference().ok())
+        {
             Some(r) => r,
             None => return Vec::new(),
         };
 
-        let outlines_dict = match doc.inner().get_object(outlines_ref).and_then(|o| o.as_dict()) {
+        let outlines_dict = match doc
+            .inner()
+            .get_object(outlines_ref)
+            .and_then(|o| o.as_dict())
+        {
             Ok(d) => d,
             Err(_) => return Vec::new(),
         };
 
-        let first_ref = match outlines_dict.get(b"First").ok().and_then(|o| o.as_reference().ok()) {
+        let first_ref = match outlines_dict
+            .get(b"First")
+            .ok()
+            .and_then(|o| o.as_reference().ok())
+        {
             Some(r) => r,
             None => return Vec::new(),
         };
@@ -275,7 +286,11 @@ impl DocumentModel {
         let mut visited = std::collections::HashSet::new();
 
         while visited.insert(current_ref) {
-            let item_dict = match doc.inner().get_object(current_ref).and_then(|o| o.as_dict()) {
+            let item_dict = match doc
+                .inner()
+                .get_object(current_ref)
+                .and_then(|o| o.as_dict())
+            {
                 Ok(d) => d,
                 Err(_) => break,
             };
@@ -288,7 +303,11 @@ impl DocumentModel {
 
             let page_index = Self::resolve_dest_page(doc, item_dict.get(b"Dest").ok(), pages);
 
-            let children = match item_dict.get(b"First").ok().and_then(|o| o.as_reference().ok()) {
+            let children = match item_dict
+                .get(b"First")
+                .ok()
+                .and_then(|o| o.as_reference().ok())
+            {
                 Some(child_ref) => Self::traverse_outline_chain(doc, child_ref, pages, depth + 1),
                 None => Vec::new(),
             };
@@ -299,7 +318,11 @@ impl DocumentModel {
                 children,
             });
 
-            match item_dict.get(b"Next").ok().and_then(|o| o.as_reference().ok()) {
+            match item_dict
+                .get(b"Next")
+                .ok()
+                .and_then(|o| o.as_reference().ok())
+            {
                 Some(next_ref) => current_ref = next_ref,
                 None => break,
             }
@@ -332,12 +355,22 @@ impl DocumentModel {
             None => return Vec::new(),
         };
 
-        let oc_props = match catalog.get(b"OCProperties").ok().and_then(|o| doc.resolve(o)).and_then(|o| o.as_dict().ok()) {
+        let oc_props = match catalog
+            .get(b"OCProperties")
+            .ok()
+            .and_then(|o| doc.resolve(o))
+            .and_then(|o| o.as_dict().ok())
+        {
             Some(d) => d,
             None => return Vec::new(),
         };
 
-        let ocgs_arr = match oc_props.get(b"OCGs").ok().and_then(|o| doc.resolve(o)).and_then(|o| o.as_array().ok()) {
+        let ocgs_arr = match oc_props
+            .get(b"OCGs")
+            .ok()
+            .and_then(|o| doc.resolve(o))
+            .and_then(|o| o.as_array().ok())
+        {
             Some(a) => a,
             None => return Vec::new(),
         };
@@ -350,20 +383,24 @@ impl DocumentModel {
             .and_then(|d| d.get(b"OFF").ok())
             .and_then(|o| doc.resolve(o))
             .and_then(|o| o.as_array().ok())
-            .map(|a| a.iter().filter_map(|item| item.as_reference().ok()).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|item| item.as_reference().ok())
+                    .collect()
+            })
             .unwrap_or_default();
 
         let mut layers = Vec::new();
         for item in ocgs_arr {
             if let Ok(id) = item.as_reference() {
                 if let Some(Object::Dictionary(d)) = doc.get_object(id) {
-                    let name = d.get(b"Name").ok().and_then(to_string_lossy).unwrap_or_else(|| "Layer".to_string());
+                    let name = d
+                        .get(b"Name")
+                        .ok()
+                        .and_then(to_string_lossy)
+                        .unwrap_or_else(|| "Layer".to_string());
                     let visible = !off_ids.contains(&id);
-                    layers.push(PdfLayer {
-                        id,
-                        name,
-                        visible,
-                    });
+                    layers.push(PdfLayer { id, name, visible });
                 }
             }
         }
@@ -377,17 +414,32 @@ impl DocumentModel {
             None => return Vec::new(),
         };
 
-        let names_dict = match catalog.get(b"Names").ok().and_then(|o| doc.resolve(o)).and_then(|o| o.as_dict().ok()) {
+        let names_dict = match catalog
+            .get(b"Names")
+            .ok()
+            .and_then(|o| doc.resolve(o))
+            .and_then(|o| o.as_dict().ok())
+        {
             Some(d) => d,
             None => return Vec::new(),
         };
 
-        let ef_dict = match names_dict.get(b"EmbeddedFiles").ok().and_then(|o| doc.resolve(o)).and_then(|o| o.as_dict().ok()) {
+        let ef_dict = match names_dict
+            .get(b"EmbeddedFiles")
+            .ok()
+            .and_then(|o| doc.resolve(o))
+            .and_then(|o| o.as_dict().ok())
+        {
             Some(d) => d,
             None => return Vec::new(),
         };
 
-        let names_arr = match ef_dict.get(b"Names").ok().and_then(|o| doc.resolve(o)).and_then(|o| o.as_array().ok()) {
+        let names_arr = match ef_dict
+            .get(b"Names")
+            .ok()
+            .and_then(|o| doc.resolve(o))
+            .and_then(|o| o.as_array().ok())
+        {
             Some(a) => a,
             None => return Vec::new(),
         };
@@ -398,7 +450,12 @@ impl DocumentModel {
             let label = to_string_lossy(&names_arr[i]).unwrap_or_else(|| "attachment".to_string());
             if let Ok(filespec_id) = names_arr[i + 1].as_reference() {
                 if let Some(Object::Dictionary(fs_dict)) = doc.get_object(filespec_id) {
-                    let filename = fs_dict.get(b"UF").or_else(|_| fs_dict.get(b"F")).ok().and_then(to_string_lossy).unwrap_or(label);
+                    let filename = fs_dict
+                        .get(b"UF")
+                        .or_else(|_| fs_dict.get(b"F"))
+                        .ok()
+                        .and_then(to_string_lossy)
+                        .unwrap_or(label);
                     let desc = fs_dict.get(b"Desc").ok().and_then(to_string_lossy);
 
                     let size_bytes = fs_dict
@@ -444,27 +501,48 @@ pub fn add_attachment(
 
     let mut filespec = Dictionary::new();
     filespec.set(b"Type", Object::Name(b"Filespec".to_vec()));
-    filespec.set(b"F", Object::String(filename.as_bytes().to_vec(), StringFormat::Literal));
-    filespec.set(b"UF", Object::String(filename.as_bytes().to_vec(), StringFormat::Literal));
+    filespec.set(
+        b"F",
+        Object::String(filename.as_bytes().to_vec(), StringFormat::Literal),
+    );
+    filespec.set(
+        b"UF",
+        Object::String(filename.as_bytes().to_vec(), StringFormat::Literal),
+    );
     filespec.set(b"EF", Object::Dictionary(ef_dict));
 
     let filespec_id = doc.add_object(filespec);
 
     // Register into Catalog Names -> EmbeddedFiles
-    let catalog_id = doc.trailer.get(b"Root").map_err(|_| ModelError::MissingCatalog)?.as_reference().map_err(|_| ModelError::MissingCatalog)?;
-    let mut catalog_dict = doc.get_object(catalog_id).map_err(|_| ModelError::MissingCatalog)?.as_dict().map_err(|_| ModelError::MissingCatalog)?.clone();
+    let catalog_id = doc
+        .trailer
+        .get(b"Root")
+        .map_err(|_| ModelError::MissingCatalog)?
+        .as_reference()
+        .map_err(|_| ModelError::MissingCatalog)?;
+    let mut catalog_dict = doc
+        .get_object(catalog_id)
+        .map_err(|_| ModelError::MissingCatalog)?
+        .as_dict()
+        .map_err(|_| ModelError::MissingCatalog)?
+        .clone();
 
     let names_id = match catalog_dict.get(b"Names") {
         Ok(Object::Reference(id)) => *id,
         _ => {
             let nid = doc.add_object(Dictionary::new());
             catalog_dict.set(b"Names", Object::Reference(nid));
-            doc.objects.insert(catalog_id, Object::Dictionary(catalog_dict));
+            doc.objects
+                .insert(catalog_id, Object::Dictionary(catalog_dict));
             nid
         }
     };
 
-    let mut names_dict = doc.get_object(names_id).and_then(|o| o.as_dict()).cloned().unwrap_or_default();
+    let mut names_dict = doc
+        .get_object(names_id)
+        .and_then(|o| o.as_dict())
+        .cloned()
+        .unwrap_or_default();
     let ef_id = match names_dict.get(b"EmbeddedFiles") {
         Ok(Object::Reference(id)) => *id,
         _ => {
@@ -482,7 +560,10 @@ pub fn add_attachment(
             Ok(Object::Array(a)) => a.clone(),
             _ => Vec::new(),
         };
-        list.push(Object::String(filename.as_bytes().to_vec(), StringFormat::Literal));
+        list.push(Object::String(
+            filename.as_bytes().to_vec(),
+            StringFormat::Literal,
+        ));
         list.push(Object::Reference(filespec_id));
         ef_dict.set(b"Names", Object::Array(list));
     }

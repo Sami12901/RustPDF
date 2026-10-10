@@ -5,8 +5,7 @@ use std::io::{Read, Write};
 use thiserror::Error;
 
 pub use lopdf::{
-    Dictionary, Document as LopdfDoc, Error as LopdfError, Object, ObjectId, Stream,
-    StringFormat,
+    Dictionary, Document as LopdfDoc, Error as LopdfError, Object, ObjectId, Stream, StringFormat,
 };
 
 pub type Array = Vec<Object>;
@@ -126,8 +125,10 @@ pub mod helpers {
                 // Check if UTF-16BE BOM: \xFE\xFF
                 if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
                     let u16_chars: Vec<u16> = bytes[2..]
-                        .chunks_exact(2)
-                        .map(|chunk| ((chunk[0] as u16) << 8) | (chunk[1] as u16))
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|&[b0, b1]| ((b0 as u16) << 8) | (b1 as u16))
                         .collect();
                     String::from_utf16(&u16_chars).ok()
                 } else {
@@ -141,7 +142,7 @@ pub mod helpers {
 
     pub fn to_f32(obj: &Object) -> Option<f32> {
         match obj {
-            Object::Real(val) => Some(*val as f32),
+            Object::Real(val) => Some(*val),
             Object::Integer(val) => Some(*val as f32),
             _ => None,
         }

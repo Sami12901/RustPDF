@@ -1,12 +1,12 @@
 //! rustpdf-ui/organizer — Full-screen page organization grid with multi-selection.
 
+use crate::thumbnails::ThumbnailConfig;
 use egui::{
-    vec2, Align, Button, Color32, ColorImage, Context, CornerRadius, Layout, Rect,
-    ScrollArea, Stroke, StrokeKind, TextureHandle, TextureOptions, Ui,
+    vec2, Align, Button, Color32, ColorImage, Context, CornerRadius, Layout, Rect, ScrollArea,
+    Stroke, StrokeKind, TextureHandle, TextureOptions, Ui,
 };
 use rustpdf_engine::DocumentSession;
 use rustpdf_render::{RenderPool, RenderRequest};
-use crate::thumbnails::ThumbnailConfig;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -133,7 +133,10 @@ impl OrganizerComponent {
             }
 
             if ui
-                .add_enabled(has_selection && total_pages > state.selected_pages.len(), Button::new("🗑 Delete"))
+                .add_enabled(
+                    has_selection && total_pages > state.selected_pages.len(),
+                    Button::new("🗑 Delete"),
+                )
                 .on_hover_text("Delete selected pages (at least 1 page must remain)")
                 .clicked()
             {
@@ -153,11 +156,17 @@ impl OrganizerComponent {
 
             ui.separator();
 
-            if ui.add_enabled(session.history.can_undo(), Button::new("↩ Undo")).clicked() {
+            if ui
+                .add_enabled(session.history.can_undo(), Button::new("↩ Undo"))
+                .clicked()
+            {
                 triggered_action = Some(OrganizerAction::Undo);
             }
 
-            if ui.add_enabled(session.history.can_redo(), Button::new("↪ Redo")).clicked() {
+            if ui
+                .add_enabled(session.history.can_redo(), Button::new("↪ Redo"))
+                .clicked()
+            {
                 triggered_action = Some(OrganizerAction::Redo);
             }
 
@@ -168,7 +177,11 @@ impl OrganizerComponent {
                 if ui.button("Select All").clicked() {
                     state.select_all(total_pages);
                 }
-                ui.label(format!("{} of {} selected", state.selected_pages.len(), total_pages));
+                ui.label(format!(
+                    "{} of {} selected",
+                    state.selected_pages.len(),
+                    total_pages
+                ));
             });
         });
 
@@ -191,7 +204,10 @@ impl OrganizerComponent {
                     let is_selected = state.selected_pages.contains(&idx);
 
                     let (rect, resp) = ui.allocate_exact_size(
-                        vec2(card_w, card_h + if config.show_page_labels { 24.0 } else { 0.0 }),
+                        vec2(
+                            card_w,
+                            card_h + if config.show_page_labels { 24.0 } else { 0.0 },
+                        ),
                         egui::Sense::click(),
                     );
 

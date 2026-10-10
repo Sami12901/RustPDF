@@ -1,7 +1,7 @@
 //! Text extraction and search engine using hayro page interpretation.
 
-use std::ops::Range;
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
 
 /// One extracted glyph with its Unicode representation and view-space bounding box.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

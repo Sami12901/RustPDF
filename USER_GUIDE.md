@@ -34,13 +34,22 @@ Upon startup, you will be greeted by the **Home Workspace**, which features:
 
 ---
 
-## 3. Text Selection & Search
+## 3. Text Selection, Search & Editing
 
 - **Selecting Text**: Click and drag your cursor over any text on the page. Press <kbd>Ctrl+C</kbd> to copy the extracted text to your system clipboard.
-- **Find in Document**: Press <kbd>Ctrl+F</kbd> to open the search bar.
-  - Type your search query to see matches highlighted in real time.
-  - Navigate matches using **Next (Enter)** and **Previous (Shift+Enter)**.
+- **Find in Document**: Press <kbd>Ctrl+F</kbd> to open the whole-document search bar.
+  - Scans every page across the document in real time.
+  - Matches are highlighted on canvas (yellow for all occurrences, orange for the active match).
+  - Navigate matches using **Next (<kbd>Enter</kbd>)** and **Previous (<kbd>Shift+Enter</kbd>)**.
   - Toggle **Match Case** (`Aa`) or **Match Whole Words** (`W`).
+- **Interactive Text Editing**:
+  - In Edit Mode, click any text block on the page to open the editing popup.
+  - **In-Place Replacement**: Replaces the exact underlying PDF text operator without modifying other identical strings.
+  - **Overlay Replacement**: If the font or encoding prevents exact in-place substitution, cleanly masks the background rectangle and stamps the replacement text.
+- **Compress & Optimize Document**:
+  - Access Tools Drawer ▸ **Compress a PDF**.
+  - Runs Flate stream compression and object graph reachability analysis to prune unreferenced orphan objects, reducing file size safely without quality loss.
+
 
 ---
 

@@ -37,12 +37,21 @@ pub struct FormField {
 
 /// Retrieves all interactive form fields defined in the document's /AcroForm.
 pub fn get_form_fields(doc: &LopdfDoc) -> Vec<FormField> {
-    let catalog = match doc.trailer.get(b"Root").ok().and_then(|r| doc.get_object(r.as_reference().ok()?).ok()) {
+    let catalog = match doc
+        .trailer
+        .get(b"Root")
+        .ok()
+        .and_then(|r| doc.get_object(r.as_reference().ok()?).ok())
+    {
         Some(Object::Dictionary(d)) => d,
         _ => return Vec::new(),
     };
 
-    let acro_form = match catalog.get(b"AcroForm").ok().and_then(|r| doc.get_object(r.as_reference().ok()?).ok()) {
+    let acro_form = match catalog
+        .get(b"AcroForm")
+        .ok()
+        .and_then(|r| doc.get_object(r.as_reference().ok()?).ok())
+    {
         Some(Object::Dictionary(d)) => d,
         _ => return Vec::new(),
     };
@@ -102,7 +111,7 @@ pub fn get_form_fields(doc: &LopdfDoc) -> Vec<FormField> {
             .unwrap_or(false);
 
         let mut options = Vec::new();
-        if let Some(Object::Array(opt_arr)) = field_dict.get(b"Opt").ok() {
+        if let Ok(Object::Array(opt_arr)) = field_dict.get(b"Opt") {
             for o in opt_arr {
                 if let Some(s) = to_string_lossy(o) {
                     options.push(s);
@@ -143,14 +152,28 @@ pub fn set_field_value(
         );
     }
 
+    // Set /NeedAppearances true in the document /AcroForm dictionary so conforming readers regenerate widget appearances
+    let acro_form_id = doc
+        .trailer
+        .get(b"Root")
+        .ok()
+        .and_then(|r| r.as_reference().ok())
+        .and_then(|root_id| doc.get_object(root_id).ok())
+        .and_then(|root| root.as_dict().ok())
+        .and_then(|root_dict| root_dict.get(b"AcroForm").ok())
+        .and_then(|af| af.as_reference().ok());
+
+    if let Some(af_id) = acro_form_id {
+        if let Ok(Object::Dictionary(ref mut af_dict)) = doc.get_object_mut(af_id) {
+            af_dict.set(b"NeedAppearances", Object::Boolean(true));
+        }
+    }
+
     Ok(())
 }
 
 /// Resets a named form field to its default value (/DV), or removes /V if no default exists.
-pub fn reset_field(
-    doc: &mut LopdfDoc,
-    field_name: &str,
-) -> Result<(), FormError> {
+pub fn reset_field(doc: &mut LopdfDoc, field_name: &str) -> Result<(), FormError> {
     let fields = get_form_fields(doc);
     let target = fields
         .into_iter()

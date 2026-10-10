@@ -1,8 +1,8 @@
 //! rustpdf-ui/viewer — Document viewport, continuous scrolling, zoom, and interactive in-place text & image editing.
 
 use egui::{
-    pos2, vec2, Align2, Color32, ColorImage, Context, CornerRadius, Id, Key, Order,
-    Rect, ScrollArea, Stroke, StrokeKind, TextEdit, TextureHandle, TextureOptions, Ui,
+    pos2, vec2, Align2, Color32, ColorImage, Context, CornerRadius, Id, Key, Order, Rect,
+    ScrollArea, Stroke, StrokeKind, TextEdit, TextureHandle, TextureOptions, Ui,
 };
 use rustpdf_engine::DocumentSession;
 use rustpdf_fonts::StandardFont;
@@ -19,17 +19,18 @@ pub enum ViewMode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditTool {
-    Select,     // Select & Edit existing text bounding boxes
-    Hand,       // Hand / Pan document
-    AddText,    // Click on page to place a new text box
-    AddImage,   // Click on page to embed an image
-    Draw,       // Ink / Drawing
+    Select,   // Select & Edit existing text bounding boxes
+    Hand,     // Hand / Pan document
+    AddText,  // Click on page to place a new text box
+    AddImage, // Click on page to embed an image
+    Draw,     // Ink / Drawing
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct SelectedTextEdit {
     pub page_index: usize,
     pub block_id: usize,
+    pub target_block: rustpdf_edit::PageTextBlock,
     pub original_text: String,
     pub current_text: String,
     pub font_size: f32,
@@ -120,7 +121,8 @@ impl ViewerState {
     }
 
     pub fn invalidate_page_texture(&mut self, doc_id: u64, page_index: usize) {
-        self.texture_cache.retain(|&(d, p, _), _| !(d == doc_id && p == page_index));
+        self.texture_cache
+            .retain(|&(d, p, _), _| !(d == doc_id && p == page_index));
         self.text_blocks_cache.remove(&(doc_id, page_index));
     }
 
@@ -150,12 +152,18 @@ impl ViewerState {
                     img,
                     TextureOptions::LINEAR,
                 );
-                self.texture_cache.insert((doc_id, res.page_index, zoom_tag), handle);
+                self.texture_cache
+                    .insert((doc_id, res.page_index, zoom_tag), handle);
             }
         }
     }
 
-    pub fn get_texture(&self, doc_id: u64, page_index: usize, zoom_tag: u64) -> Option<&TextureHandle> {
+    pub fn get_texture(
+        &self,
+        doc_id: u64,
+        page_index: usize,
+        zoom_tag: u64,
+    ) -> Option<&TextureHandle> {
         self.texture_cache.get(&(doc_id, page_index, zoom_tag))
     }
 }
@@ -169,6 +177,7 @@ impl ViewerComponent {
         state: &mut ViewerState,
         pool: &RenderPool,
         accent_color: Color32,
+        search_state: Option<&crate::search::SearchState>,
     ) {
         let doc_id = session.id;
         if state.active_doc_id != Some(doc_id) {
@@ -198,31 +207,65 @@ impl ViewerComponent {
         ScrollArea::both()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                ui.vertical_centered(|ui| {
-                    match state.view_mode {
-                        ViewMode::SinglePage => {
-                            let idx = state.current_page.min(total_pages - 1);
-                            Self::render_page_item(ui, session, state, pool, idx, zoom_tag, accent_color);
+                ui.vertical_centered(|ui| match state.view_mode {
+                    ViewMode::SinglePage => {
+                        let idx = state.current_page.min(total_pages - 1);
+                        Self::render_page_item(
+                            ui,
+                            session,
+                            state,
+                            pool,
+                            idx,
+                            zoom_tag,
+                            accent_color,
+                            search_state,
+                        );
+                    }
+                    ViewMode::Continuous => {
+                        for idx in 0..total_pages {
+                            Self::render_page_item(
+                                ui,
+                                session,
+                                state,
+                                pool,
+                                idx,
+                                zoom_tag,
+                                accent_color,
+                                search_state,
+                            );
+                            ui.add_space(16.0);
                         }
-                        ViewMode::Continuous => {
-                            for idx in 0..total_pages {
-                                Self::render_page_item(ui, session, state, pool, idx, zoom_tag, accent_color);
-                                ui.add_space(16.0);
-                            }
-                        }
-                        ViewMode::TwoUp => {
-                            let mut idx = 0;
-                            while idx < total_pages {
-                                ui.horizontal(|ui| {
-                                    Self::render_page_item(ui, session, state, pool, idx, zoom_tag, accent_color);
-                                    if idx + 1 < total_pages {
-                                        ui.add_space(16.0);
-                                        Self::render_page_item(ui, session, state, pool, idx + 1, zoom_tag, accent_color);
-                                    }
-                                });
-                                ui.add_space(16.0);
-                                idx += 2;
-                            }
+                    }
+                    ViewMode::TwoUp => {
+                        let mut idx = 0;
+                        while idx < total_pages {
+                            ui.horizontal(|ui| {
+                                Self::render_page_item(
+                                    ui,
+                                    session,
+                                    state,
+                                    pool,
+                                    idx,
+                                    zoom_tag,
+                                    accent_color,
+                                    search_state,
+                                );
+                                if idx + 1 < total_pages {
+                                    ui.add_space(16.0);
+                                    Self::render_page_item(
+                                        ui,
+                                        session,
+                                        state,
+                                        pool,
+                                        idx + 1,
+                                        zoom_tag,
+                                        accent_color,
+                                        search_state,
+                                    );
+                                }
+                            });
+                            ui.add_space(16.0);
+                            idx += 2;
                         }
                     }
                 });
@@ -237,7 +280,14 @@ impl ViewerComponent {
         } else {
             Color32::from_rgba_unmultiplied(255, 255, 255, 240)
         };
-        let border_stroke = Stroke::new(1.0, if is_dark { Color32::from_gray(70) } else { Color32::from_gray(210) });
+        let border_stroke = Stroke::new(
+            1.0,
+            if is_dark {
+                Color32::from_gray(70)
+            } else {
+                Color32::from_gray(210)
+            },
+        );
 
         egui::Area::new(Id::new("viewer_floating_tool_palette"))
             .order(Order::Foreground)
@@ -258,14 +308,22 @@ impl ViewerComponent {
 
                         // Tool 1: Pointer (Select & Edit Text/Images)
                         let is_select = state.is_edit_mode && state.active_tool == EditTool::Select;
-                        if ui.selectable_label(is_select, " ↖ ").on_hover_text("Select & Edit Text / Image Blocks").clicked() {
+                        if ui
+                            .selectable_label(is_select, " ↖ ")
+                            .on_hover_text("Select & Edit Text / Image Blocks")
+                            .clicked()
+                        {
                             state.is_edit_mode = true;
                             state.active_tool = EditTool::Select;
                         }
 
                         // Tool 2: Hand (Pan Document)
                         let is_hand = state.active_tool == EditTool::Hand;
-                        if ui.selectable_label(is_hand, " ✋ ").on_hover_text("Hand / Pan Document").clicked() {
+                        if ui
+                            .selectable_label(is_hand, " ✋ ")
+                            .on_hover_text("Hand / Pan Document")
+                            .clicked()
+                        {
                             state.active_tool = EditTool::Hand;
                             state.selected_edit = None;
                         }
@@ -273,31 +331,58 @@ impl ViewerComponent {
                         ui.separator();
 
                         // Tool 3: Add Text Box (T+)
-                        let is_add_text = state.is_edit_mode && state.active_tool == EditTool::AddText;
-                        if ui.selectable_label(is_add_text, " T+ ").on_hover_text("Add New Text Box (Click on page)").clicked() {
+                        let is_add_text =
+                            state.is_edit_mode && state.active_tool == EditTool::AddText;
+                        if ui
+                            .selectable_label(is_add_text, " T+ ")
+                            .on_hover_text("Add New Text Box (Click on page)")
+                            .clicked()
+                        {
                             state.is_edit_mode = true;
                             state.active_tool = EditTool::AddText;
                         }
 
                         // Tool 4: Add Image
-                        let is_add_img = state.is_edit_mode && state.active_tool == EditTool::AddImage;
-                        if ui.selectable_label(is_add_img, " 🖼 ").on_hover_text("Insert Image (Click on page)").clicked() {
+                        let is_add_img =
+                            state.is_edit_mode && state.active_tool == EditTool::AddImage;
+                        if ui
+                            .selectable_label(is_add_img, " 🖼 ")
+                            .on_hover_text("Insert Image (Click on page)")
+                            .clicked()
+                        {
                             state.is_edit_mode = true;
                             state.active_tool = EditTool::AddImage;
                         }
 
                         // Tool 5: Draw / Pen
                         let is_draw = state.active_tool == EditTool::Draw;
-                        if ui.selectable_label(is_draw, " ✏ ").on_hover_text("Pencil / Draw Annotation").clicked() {
+                        if ui
+                            .selectable_label(is_draw, " ✏ ")
+                            .on_hover_text("Pencil / Draw Annotation")
+                            .clicked()
+                        {
                             state.active_tool = EditTool::Draw;
                         }
 
                         ui.separator();
 
                         // Toggle Edit Mode ON / OFF
-                        let edit_btn_label = if state.is_edit_mode { "✎ ON" } else { "✎ Edit" };
-                        let edit_color = if state.is_edit_mode { accent_color } else { Color32::from_gray(120) };
-                        if ui.button(egui::RichText::new(edit_btn_label).color(edit_color).strong())
+                        let edit_btn_label = if state.is_edit_mode {
+                            "✎ ON"
+                        } else {
+                            "✎ Edit"
+                        };
+                        let edit_color = if state.is_edit_mode {
+                            accent_color
+                        } else {
+                            Color32::from_gray(120)
+                        };
+                        if ui
+                            .button(
+                                egui::RichText::new(edit_btn_label)
+                                    .color(edit_color)
+                                    .strong(),
+                            )
                             .on_hover_text("Toggle Interactive In-Page Content Bounding Boxes")
                             .clicked()
                         {
@@ -319,6 +404,7 @@ impl ViewerComponent {
         page_index: usize,
         zoom_tag: u64,
         _accent_color: Color32,
+        search_state: Option<&crate::search::SearchState>,
     ) {
         let doc_id = session.id;
         let Some(page_info) = session.model.pages.get(page_index).cloned() else {
@@ -328,7 +414,8 @@ impl ViewerComponent {
         let width_px = page_info.width * state.zoom;
         let height_px = page_info.height * state.zoom;
 
-        let (rect, resp) = ui.allocate_exact_size(vec2(width_px, height_px), egui::Sense::click_and_drag());
+        let (rect, resp) =
+            ui.allocate_exact_size(vec2(width_px, height_px), egui::Sense::click_and_drag());
 
         // Drop shadow & White paper background
         let shadow_rect = rect.translate(vec2(3.0, 4.0));
@@ -376,6 +463,48 @@ impl ViewerComponent {
         }
 
         // =========================================================================
+        // SEARCH MATCH HIGHLIGHTS (ACROSS DOCUMENT)
+        // =========================================================================
+        if let Some(search) = search_state {
+            if search.is_open {
+                for (hit_idx, hit) in search.hits.iter().enumerate() {
+                    if hit.page_index == page_index {
+                        let x0 = rect.min.x + (hit.rect[0] / page_info.width) * rect.width();
+                        let y0 = rect.max.y
+                            - ((hit.rect[1] + hit.rect[3]) / page_info.height) * rect.height();
+                        let w = (hit.rect[2] / page_info.width) * rect.width();
+                        let h = (hit.rect[3] / page_info.height) * rect.height();
+                        let hit_screen_rect =
+                            Rect::from_min_size(pos2(x0, y0), vec2(w.max(6.0), h.max(8.0)));
+
+                        let is_active = hit_idx == search.active_match_index;
+                        let fill = if is_active {
+                            Color32::from_rgba_unmultiplied(255, 152, 0, 160)
+                        } else {
+                            Color32::from_rgba_unmultiplied(255, 235, 59, 130)
+                        };
+                        let stroke = if is_active {
+                            Stroke::new(1.5, Color32::from_rgb(230, 81, 0))
+                        } else {
+                            Stroke::NONE
+                        };
+
+                        ui.painter()
+                            .rect_filled(hit_screen_rect, CornerRadius::same(2), fill);
+                        if stroke != Stroke::NONE {
+                            ui.painter().rect_stroke(
+                                hit_screen_rect,
+                                CornerRadius::same(2),
+                                stroke,
+                                StrokeKind::Inside,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
         // INTERACTIVE IN-PAGE "EDIT TEXT & IMAGES" BOUNDING BOXES (MATCHES SCREENSHOT 2)
         // =========================================================================
         if state.is_edit_mode {
@@ -385,21 +514,29 @@ impl ViewerComponent {
                 state.text_blocks_cache.insert((doc_id, page_index), blocks);
             }
 
-            let blocks = state.text_blocks_cache.get(&(doc_id, page_index)).cloned().unwrap_or_default();
+            let blocks = state
+                .text_blocks_cache
+                .get(&(doc_id, page_index))
+                .cloned()
+                .unwrap_or_default();
             let mut clicked_block: Option<SelectedTextEdit> = None;
-            let mut apply_replacement: Option<(String, String)> = None;
-            let mut delete_text: Option<String> = None;
+            let mut apply_replacement: Option<(rustpdf_edit::PageTextBlock, String)> = None;
+            let mut delete_text: Option<rustpdf_edit::PageTextBlock> = None;
 
             for block in &blocks {
                 // Map PDF points (bottom-left origin) to screen viewport pixels
                 let x0 = rect.min.x + (block.rect[0] / page_info.width) * rect.width();
-                let y0 = rect.max.y - ((block.rect[1] + block.rect[3]) / page_info.height) * rect.height();
+                let y0 = rect.max.y
+                    - ((block.rect[1] + block.rect[3]) / page_info.height) * rect.height();
                 let w = (block.rect[2] / page_info.width) * rect.width();
                 let h = (block.rect[3] / page_info.height) * rect.height();
 
-                let block_screen_rect = Rect::from_min_size(pos2(x0, y0), vec2(w.max(16.0), h.max(12.0)));
+                let block_screen_rect =
+                    Rect::from_min_size(pos2(x0, y0), vec2(w.max(16.0), h.max(12.0)));
 
-                let is_selected = state.selected_edit.as_ref().map_or(false, |s| s.page_index == page_index && s.block_id == block.id);
+                let is_selected = state.selected_edit.as_ref().map_or(false, |s| {
+                    s.page_index == page_index && s.block_id == block.id
+                });
                 let mouse_pos = ui.input(|i| i.pointer.hover_pos());
                 let is_hovered = mouse_pos.map_or(false, |p| block_screen_rect.contains(p));
 
@@ -421,14 +558,29 @@ impl ViewerComponent {
                 };
 
                 // Draw bounding box
-                ui.painter().rect_filled(block_screen_rect, CornerRadius::same(2), box_fill);
-                ui.painter().rect_stroke(block_screen_rect, CornerRadius::same(2), box_stroke, StrokeKind::Inside);
+                ui.painter()
+                    .rect_filled(block_screen_rect, CornerRadius::same(2), box_fill);
+                ui.painter().rect_stroke(
+                    block_screen_rect,
+                    CornerRadius::same(2),
+                    box_stroke,
+                    StrokeKind::Inside,
+                );
 
                 // Draw small corner selection handles
                 let handle_sz = 3.5;
                 let handle_color = Color32::from_rgb(0, 120, 215);
-                for corner in [block_screen_rect.left_top(), block_screen_rect.right_top(), block_screen_rect.left_bottom(), block_screen_rect.right_bottom()] {
-                    ui.painter().rect_filled(Rect::from_center_size(corner, vec2(handle_sz, handle_sz)), CornerRadius::ZERO, handle_color);
+                for corner in [
+                    block_screen_rect.left_top(),
+                    block_screen_rect.right_top(),
+                    block_screen_rect.left_bottom(),
+                    block_screen_rect.right_bottom(),
+                ] {
+                    ui.painter().rect_filled(
+                        Rect::from_center_size(corner, vec2(handle_sz, handle_sz)),
+                        CornerRadius::ZERO,
+                        handle_color,
+                    );
                 }
 
                 // If hovered and user clicks, select this block for editing
@@ -436,6 +588,7 @@ impl ViewerComponent {
                     clicked_block = Some(SelectedTextEdit {
                         page_index,
                         block_id: block.id,
+                        target_block: block.clone(),
                         original_text: block.text.clone(),
                         current_text: block.text.clone(),
                         font_size: block.font_size,
@@ -455,55 +608,78 @@ impl ViewerComponent {
                 if edit.page_index == page_index {
                     let mut close_edit = false;
 
-                    egui::Area::new(Id::new(format!("inline_text_edit_{}_{}", page_index, edit.block_id)))
-                        .order(Order::Foreground)
-                        .fixed_pos(edit.screen_rect.min - vec2(0.0, 36.0))
-                        .show(ui.ctx(), |ui| {
-                            egui::Frame::popup(ui.style())
-                                .fill(Color32::from_rgb(250, 250, 252))
-                                .stroke(Stroke::new(1.0, Color32::from_rgb(0, 120, 215)))
-                                .corner_radius(CornerRadius::same(6))
-                                .shadow(egui::Shadow {
-                                    offset: [0, 4],
-                                    blur: 10,
-                                    spread: 0,
-                                    color: Color32::from_black_alpha(60),
-                                })
-                                .show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
+                    egui::Area::new(Id::new(format!(
+                        "inline_text_edit_{}_{}",
+                        page_index, edit.block_id
+                    )))
+                    .order(Order::Foreground)
+                    .fixed_pos(edit.screen_rect.min - vec2(0.0, 36.0))
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style())
+                            .fill(Color32::from_rgb(250, 250, 252))
+                            .stroke(Stroke::new(1.0, Color32::from_rgb(0, 120, 215)))
+                            .corner_radius(CornerRadius::same(6))
+                            .shadow(egui::Shadow {
+                                offset: [0, 4],
+                                blur: 10,
+                                spread: 0,
+                                color: Color32::from_black_alpha(60),
+                            })
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
 
-                                        // Text Edit Input
-                                        let edit_resp = ui.add(
-                                            TextEdit::singleline(&mut edit.current_text)
-                                                .desired_width((edit.screen_rect.width() + 60.0).clamp(160.0, 400.0))
-                                                .font(egui::TextStyle::Body)
-                                        );
+                                    // Text Edit Input
+                                    let edit_resp = ui.add(
+                                        TextEdit::singleline(&mut edit.current_text)
+                                            .desired_width(
+                                                (edit.screen_rect.width() + 60.0)
+                                                    .clamp(160.0, 400.0),
+                                            )
+                                            .font(egui::TextStyle::Body),
+                                    );
 
-                                        if edit_resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                                            apply_replacement = Some((edit.original_text.clone(), edit.current_text.clone()));
-                                            close_edit = true;
-                                        }
+                                    if edit_resp.lost_focus()
+                                        && ui.input(|i| i.key_pressed(Key::Enter))
+                                    {
+                                        apply_replacement = Some((
+                                            edit.target_block.clone(),
+                                            edit.current_text.clone(),
+                                        ));
+                                        close_edit = true;
+                                    }
 
-                                        // Apply Button
-                                        if ui.button(egui::RichText::new("✓ Save").color(Color32::from_rgb(16, 149, 193)).strong()).on_hover_text("Apply changes to PDF").clicked() {
-                                            apply_replacement = Some((edit.original_text.clone(), edit.current_text.clone()));
-                                            close_edit = true;
-                                        }
+                                    // Apply Button
+                                    if ui
+                                        .button(
+                                            egui::RichText::new("✓ Save")
+                                                .color(Color32::from_rgb(16, 149, 193))
+                                                .strong(),
+                                        )
+                                        .on_hover_text("Apply changes to PDF")
+                                        .clicked()
+                                    {
+                                        apply_replacement = Some((
+                                            edit.target_block.clone(),
+                                            edit.current_text.clone(),
+                                        ));
+                                        close_edit = true;
+                                    }
 
-                                        // Delete Button
-                                        if ui.button("🗑").on_hover_text("Delete this text").clicked() {
-                                            delete_text = Some(edit.original_text.clone());
-                                            close_edit = true;
-                                        }
+                                    // Delete Button
+                                    if ui.button("🗑").on_hover_text("Delete this text").clicked()
+                                    {
+                                        delete_text = Some(edit.target_block.clone());
+                                        close_edit = true;
+                                    }
 
-                                        // Close Button
-                                        if ui.button("✕").on_hover_text("Cancel").clicked() {
-                                            close_edit = true;
-                                        }
-                                    });
+                                    // Close Button
+                                    if ui.button("✕").on_hover_text("Cancel").clicked() {
+                                        close_edit = true;
+                                    }
                                 });
-                        });
+                            });
+                    });
 
                     if close_edit {
                         state.selected_edit = None;
@@ -512,15 +688,17 @@ impl ViewerComponent {
             }
 
             // Commit In-Place Replacements or Deletions
-            if let Some((orig, repl)) = apply_replacement {
-                if orig != repl && !orig.is_empty() {
-                    let _ = session.search_and_replace_text(page_index, &orig, &repl);
+            if let Some((target_block, repl)) = apply_replacement {
+                if target_block.text != repl {
+                    let _ = session.replace_text_block(page_index, &target_block, &repl);
                     state.invalidate_page_texture(doc_id, page_index);
+                    state.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
                 }
             }
-            if let Some(target) = delete_text {
-                let _ = session.search_and_replace_text(page_index, &target, "");
+            if let Some(target_block) = delete_text {
+                let _ = session.replace_text_block(page_index, &target_block, "");
                 state.invalidate_page_texture(doc_id, page_index);
+                state.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
             }
 
             // =====================================================================
@@ -549,9 +727,13 @@ impl ViewerComponent {
                     let pt_x = ((pointer_pos.x - rect.min.x) / rect.width()) * page_info.width;
                     let pt_y = ((rect.max.y - pointer_pos.y) / rect.height()) * page_info.height;
 
-                    if let Some(img_path) = rfd::FileDialog::new().add_filter("Image", &["png", "jpg", "jpeg", "webp"]).pick_file() {
+                    if let Some(img_path) = rfd::FileDialog::new()
+                        .add_filter("Image", &["png", "jpg", "jpeg", "webp"])
+                        .pick_file()
+                    {
                         if let Ok(bytes) = std::fs::read(&img_path) {
-                            let _ = session.insert_image_to_page(page_index, &bytes, pt_x, pt_y, 160.0, 120.0);
+                            let _ = session
+                                .insert_image_to_page(page_index, &bytes, pt_x, pt_y, 160.0, 120.0);
                             state.invalidate_page_texture(doc_id, page_index);
                             state.active_tool = EditTool::Select;
                         }
@@ -578,8 +760,18 @@ impl ViewerComponent {
                                 .corner_radius(CornerRadius::same(6))
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
-                                        ui.add(TextEdit::singleline(&mut placement.text).desired_width(180.0));
-                                        if ui.button(egui::RichText::new("+ Add").strong().color(Color32::from_rgb(16, 149, 193))).clicked() {
+                                        ui.add(
+                                            TextEdit::singleline(&mut placement.text)
+                                                .desired_width(180.0),
+                                        );
+                                        if ui
+                                            .button(
+                                                egui::RichText::new("+ Add")
+                                                    .strong()
+                                                    .color(Color32::from_rgb(16, 149, 193)),
+                                            )
+                                            .clicked()
+                                        {
                                             commit_new = true;
                                         }
                                         if ui.button("✕").clicked() {
@@ -617,7 +809,8 @@ impl ViewerComponent {
             let x1 = rect.min.x + (a.rect.max_x / page_info.width) * rect.width();
             let y0 = rect.max.y - (a.rect.max_y / page_info.height) * rect.height();
             let y1 = rect.max.y - (a.rect.min_y / page_info.height) * rect.height();
-            let annot_rect = Rect::from_min_max(pos2(x0.min(x1), y0.min(y1)), pos2(x0.max(x1), y0.max(y1)));
+            let annot_rect =
+                Rect::from_min_max(pos2(x0.min(x1), y0.min(y1)), pos2(x0.max(x1), y0.max(y1)));
 
             let color = Color32::from_rgb(
                 (a.color[0] * 255.0) as u8,
@@ -627,8 +820,14 @@ impl ViewerComponent {
 
             if let Some(ref text) = a.contents {
                 let bg_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 25);
-                ui.painter().rect_filled(annot_rect, CornerRadius::same(3), bg_color);
-                ui.painter().rect_stroke(annot_rect, CornerRadius::same(3), Stroke::new(1.0, color), StrokeKind::Inside);
+                ui.painter()
+                    .rect_filled(annot_rect, CornerRadius::same(3), bg_color);
+                ui.painter().rect_stroke(
+                    annot_rect,
+                    CornerRadius::same(3),
+                    Stroke::new(1.0, color),
+                    StrokeKind::Inside,
+                );
                 let font_size = (13.0 * state.zoom).clamp(9.0, 24.0);
                 ui.painter().text(
                     annot_rect.min + vec2(4.0, 2.0),
@@ -638,10 +837,21 @@ impl ViewerComponent {
                     color,
                 );
             } else if a.annot_type == rustpdf_annot::AnnotType::Circle {
-                ui.painter().circle_stroke(annot_rect.center(), annot_rect.width() * 0.45, Stroke::new(2.0, color));
-                ui.painter().circle_filled(annot_rect.center(), annot_rect.width() * 0.20, color);
+                ui.painter().circle_stroke(
+                    annot_rect.center(),
+                    annot_rect.width() * 0.45,
+                    Stroke::new(2.0, color),
+                );
+                ui.painter()
+                    .circle_filled(annot_rect.center(), annot_rect.width() * 0.20, color);
             } else if a.annot_type == rustpdf_annot::AnnotType::Line {
-                ui.painter().line_segment([pos2(annot_rect.min.x, annot_rect.center().y), pos2(annot_rect.max.x, annot_rect.center().y)], Stroke::new(2.0, color));
+                ui.painter().line_segment(
+                    [
+                        pos2(annot_rect.min.x, annot_rect.center().y),
+                        pos2(annot_rect.max.x, annot_rect.center().y),
+                    ],
+                    Stroke::new(2.0, color),
+                );
             }
         }
     }

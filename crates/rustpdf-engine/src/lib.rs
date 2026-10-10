@@ -22,6 +22,8 @@ pub enum EngineError {
     Annot(#[from] rustpdf_annot::AnnotError),
     #[error("forms error: {0}")]
     Forms(#[from] rustpdf_forms::FormError),
+    #[error("security error: {0}")]
+    Security(#[from] rustpdf_cos::security::SecurityError),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -40,10 +42,7 @@ pub struct DocumentSession {
 
 impl DocumentSession {
     /// Opens a document from memory buffer with optional file path.
-    pub fn open_mem(
-        bytes: Vec<u8>,
-        file_path: Option<PathBuf>,
-    ) -> Result<Self, EngineError> {
+    pub fn open_mem(bytes: Vec<u8>, file_path: Option<PathBuf>) -> Result<Self, EngineError> {
         static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -82,7 +81,11 @@ impl DocumentSession {
     }
 
     /// Refreshes model and raw_bytes from current in-memory cos_doc.
-    fn commit_in_memory_change(&mut self, description: &str, old_bytes: Vec<u8>) -> Result<(), EngineError> {
+    fn commit_in_memory_change(
+        &mut self,
+        description: &str,
+        old_bytes: Vec<u8>,
+    ) -> Result<(), EngineError> {
         let mut new_bytes = Vec::new();
         self.cos_doc.save_to(&mut new_bytes)?;
 
@@ -108,7 +111,12 @@ impl DocumentSession {
     }
 
     /// Inserts a blank page.
-    pub fn insert_blank_page(&mut self, index: usize, width: f32, height: f32) -> Result<(), EngineError> {
+    pub fn insert_blank_page(
+        &mut self,
+        index: usize,
+        width: f32,
+        height: f32,
+    ) -> Result<(), EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
         rustpdf_organize::insert_blank_page(self.cos_doc.inner_mut(), index, width, height)?;
         self.commit_in_memory_change("Insert blank page", old_bytes)
@@ -167,7 +175,10 @@ impl DocumentSession {
     }
 
     /// Adds an annotation and records in undo history.
-    pub fn add_annotation(&mut self, annot: &rustpdf_annot::Annotation) -> Result<lopdf::ObjectId, EngineError> {
+    pub fn add_annotation(
+        &mut self,
+        annot: &rustpdf_annot::Annotation,
+    ) -> Result<lopdf::ObjectId, EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
         let id = rustpdf_annot::add_annotation(self.cos_doc.inner_mut(), annot)?;
         self.commit_in_memory_change("Add annotation", old_bytes)?;
@@ -195,7 +206,11 @@ impl DocumentSession {
     }
 
     /// Sets form field value and records in undo history.
-    pub fn set_form_field_value(&mut self, field_name: &str, new_val: &str) -> Result<(), EngineError> {
+    pub fn set_form_field_value(
+        &mut self,
+        field_name: &str,
+        new_val: &str,
+    ) -> Result<(), EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
         rustpdf_forms::set_field_value(self.cos_doc.inner_mut(), field_name, new_val)?;
         self.commit_in_memory_change("Edit form field", old_bytes)?;
@@ -211,15 +226,21 @@ impl DocumentSession {
     }
 
     /// Protects the document with user/owner passwords and permissions.
+    ///
+    /// NOTE: Full ISO 32000 Standard Security encryption is currently unsupported.
+    /// Fake pseudo-encryption is prohibited to prevent document corruption.
     pub fn protect_document(
         &mut self,
         user_pass: &str,
         owner_pass: &str,
         perms: rustpdf_cos::security::DocumentPermissions,
     ) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_cos::security::protect_document(self.cos_doc.inner_mut(), user_pass, owner_pass, perms);
-        self.commit_in_memory_change("Protect document", old_bytes)?;
+        rustpdf_cos::security::protect_document(
+            self.cos_doc.inner_mut(),
+            user_pass,
+            owner_pass,
+            perms,
+        )?;
         Ok(())
     }
 
@@ -232,7 +253,11 @@ impl DocumentSession {
     }
 
     /// Adds an embedded file attachment to the document.
-    pub fn add_attachment(&mut self, filename: &str, data: &[u8]) -> Result<lopdf::ObjectId, EngineError> {
+    pub fn add_attachment(
+        &mut self,
+        filename: &str,
+        data: &[u8],
+    ) -> Result<lopdf::ObjectId, EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
         let id = rustpdf_model::add_attachment(self.cos_doc.inner_mut(), filename, data)?;
         self.commit_in_memory_change("Add attachment", old_bytes)?;
@@ -240,6 +265,7 @@ impl DocumentSession {
     }
 
     /// Adds custom text to a page at (x, y) coordinates and commits to undo history.
+    #[allow(clippy::too_many_arguments)]
     pub fn add_text_to_page(
         &mut self,
         page_index: usize,
@@ -251,7 +277,16 @@ impl DocumentSession {
         color_rgb: [f32; 3],
     ) -> Result<(), EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_edit::add_text_to_page(self.cos_doc.inner_mut(), page_index, text, x, y, font, size_pt, color_rgb)?;
+        rustpdf_edit::add_text_to_page(
+            self.cos_doc.inner_mut(),
+            page_index,
+            text,
+            x,
+            y,
+            font,
+            size_pt,
+            color_rgb,
+        )?;
         self.commit_in_memory_change(&format!("Add text '{text}'"), old_bytes)
     }
 
@@ -266,7 +301,15 @@ impl DocumentSession {
         height_pt: f32,
     ) -> Result<(), EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_edit::insert_image_to_page(self.cos_doc.inner_mut(), page_index, image_bytes, x, y, width_pt, height_pt)?;
+        rustpdf_edit::insert_image_to_page(
+            self.cos_doc.inner_mut(),
+            page_index,
+            image_bytes,
+            x,
+            y,
+            width_pt,
+            height_pt,
+        )?;
         self.commit_in_memory_change("Insert image", old_bytes)
     }
 
@@ -278,11 +321,57 @@ impl DocumentSession {
         replacement: &str,
     ) -> Result<usize, EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
-        let count = rustpdf_edit::search_and_replace_text_in_page(self.cos_doc.inner_mut(), page_index, target, replacement)?;
+        let count = rustpdf_edit::search_and_replace_text_in_page(
+            self.cos_doc.inner_mut(),
+            page_index,
+            target,
+            replacement,
+        )?;
         if count > 0 {
-            self.commit_in_memory_change(&format!("Replace '{target}' with '{replacement}'"), old_bytes)?;
+            self.commit_in_memory_change(
+                &format!("Replace '{target}' with '{replacement}'"),
+                old_bytes,
+            )?;
         }
         Ok(count)
+    }
+
+    /// Replaces a targeted text block on a page, attempting exact in-place operator replacement first,
+    /// then falling back safely to overlay replacement if exact stream editing cannot be completed.
+    pub fn replace_text_block(
+        &mut self,
+        page_index: usize,
+        block: &rustpdf_edit::PageTextBlock,
+        new_text: &str,
+    ) -> Result<(), EngineError> {
+        let old_bytes = (*self.raw_bytes).clone();
+        rustpdf_edit::replace_text_block(self.cos_doc.inner_mut(), page_index, block, new_text)?;
+        self.commit_in_memory_change(
+            &format!("Edit text '{}' -> '{}'", block.text, new_text),
+            old_bytes,
+        )
+    }
+
+    /// Replaces a targeted text block using clean overlay replacement with optional background masking.
+    pub fn replace_text_block_overlay(
+        &mut self,
+        page_index: usize,
+        block: &rustpdf_edit::PageTextBlock,
+        new_text: &str,
+        mask_bg: bool,
+    ) -> Result<(), EngineError> {
+        let old_bytes = (*self.raw_bytes).clone();
+        rustpdf_edit::replace_text_block_overlay(
+            self.cos_doc.inner_mut(),
+            page_index,
+            block,
+            new_text,
+            mask_bg,
+        )?;
+        self.commit_in_memory_change(
+            &format!("Overlay text '{}' -> '{}'", block.text, new_text),
+            old_bytes,
+        )
     }
 
     /// Adds a diagonal watermark across pages and commits to undo history.
@@ -295,7 +384,14 @@ impl DocumentSession {
         rotation_deg: f32,
     ) -> Result<(), EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_edit::add_watermark(self.cos_doc.inner_mut(), pages, text, font_size, color_rgb, rotation_deg)?;
+        rustpdf_edit::add_watermark(
+            self.cos_doc.inner_mut(),
+            pages,
+            text,
+            font_size,
+            color_rgb,
+            rotation_deg,
+        )?;
         self.commit_in_memory_change(&format!("Add watermark '{text}'"), old_bytes)
     }
 
@@ -309,7 +405,14 @@ impl DocumentSession {
         color_rgb: [f32; 3],
     ) -> Result<(), EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_edit::add_header_footer(self.cos_doc.inner_mut(), pages, header_text, footer_text, font_size, color_rgb)?;
+        rustpdf_edit::add_header_footer(
+            self.cos_doc.inner_mut(),
+            pages,
+            header_text,
+            footer_text,
+            font_size,
+            color_rgb,
+        )?;
         self.commit_in_memory_change("Add header and footer", old_bytes)
     }
 
@@ -333,7 +436,13 @@ impl DocumentSession {
         digits: usize,
     ) -> Result<(), EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_edit::add_bates_numbering(self.cos_doc.inner_mut(), pages, prefix, start_num, digits)?;
+        rustpdf_edit::add_bates_numbering(
+            self.cos_doc.inner_mut(),
+            pages,
+            prefix,
+            start_num,
+            digits,
+        )?;
         self.commit_in_memory_change("Add Bates numbering", old_bytes)
     }
 
@@ -353,6 +462,14 @@ impl DocumentSession {
     pub fn get_page_text_blocks(&self, page_index: usize) -> Vec<rustpdf_edit::PageTextBlock> {
         rustpdf_edit::extract_page_text_blocks(self.cos_doc.inner(), page_index)
     }
+
+    /// Compresses uncompressed streams, prunes orphan objects, and records in undo history.
+    pub fn compress_document(&mut self) -> Result<rustpdf_edit::CompressionResult, EngineError> {
+        let old_bytes = (*self.raw_bytes).clone();
+        let res = rustpdf_edit::compress_document(self.cos_doc.inner_mut())?;
+        self.commit_in_memory_change("Compress document", old_bytes)?;
+        Ok(res)
+    }
 }
 
 #[cfg(test)]
@@ -361,7 +478,8 @@ mod tests {
 
     #[test]
     fn test_session_lifecycle() {
-        let blank_bytes = rustpdf_export::create_blank_pdf(2, 612.0, 792.0, "Session Test").unwrap();
+        let blank_bytes =
+            rustpdf_export::create_blank_pdf(2, 612.0, 792.0, "Session Test").unwrap();
         let mut session = DocumentSession::open_mem(blank_bytes, None).unwrap();
 
         assert_eq!(session.page_count(), 2);

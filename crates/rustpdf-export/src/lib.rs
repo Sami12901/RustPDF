@@ -26,8 +26,14 @@ pub fn create_blank_pdf(
 
     // Add info dict
     let mut info = Dictionary::new();
-    info.set(b"Title", Object::String(title.as_bytes().to_vec(), StringFormat::Literal));
-    info.set(b"Producer", Object::String(b"RustPdf Workbench".to_vec(), StringFormat::Literal));
+    info.set(
+        b"Title",
+        Object::String(title.as_bytes().to_vec(), StringFormat::Literal),
+    );
+    info.set(
+        b"Producer",
+        Object::String(b"RustPdf Workbench".to_vec(), StringFormat::Literal),
+    );
     let info_id = doc.add_object(info);
     doc.trailer.set(b"Info", Object::Reference(info_id));
 
@@ -61,7 +67,10 @@ pub fn create_blank_pdf(
             ]),
         );
         page.set(b"Contents", Object::Reference(content_id));
-        page.set(b"Resources", Object::Reference(doc.add_object(Dictionary::new())));
+        page.set(
+            b"Resources",
+            Object::Reference(doc.add_object(Dictionary::new())),
+        );
 
         let page_id = doc.add_object(page);
         kid_refs.push(Object::Reference(page_id));

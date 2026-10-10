@@ -8,7 +8,11 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "rustpdf-cli", version = "0.1.0", about = "RustPdf Command-Line PDF Workbench")]
+#[command(
+    name = "rustpdf-cli",
+    version = "0.1.0",
+    about = "RustPdf Command-Line PDF Workbench"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -103,7 +107,10 @@ fn main() -> Result<()> {
             if let Some(ref producer) = session.model.metadata.producer {
                 println!("Producer:    {}", producer);
             }
-            println!("File size:   {} bytes", session.model.metadata.file_size_bytes);
+            println!(
+                "File size:   {} bytes",
+                session.model.metadata.file_size_bytes
+            );
             println!("Bookmarks:   {} top-level", session.model.outlines.len());
         }
 
@@ -131,7 +138,12 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Render { input, page, out, scale } => {
+        Commands::Render {
+            input,
+            page,
+            out,
+            scale,
+        } => {
             let bytes = fs::read(&input)
                 .with_context(|| format!("Failed to read '{}'", input.display()))?;
 
@@ -170,7 +182,13 @@ fn main() -> Result<()> {
             img.save_with_format(&out, image::ImageFormat::Png)
                 .with_context(|| format!("Failed to save image to '{}'", out.display()))?;
 
-            println!("Rendered page {} to '{}' ({}x{} px)", page, out.display(), page_data.width, page_data.height);
+            println!(
+                "Rendered page {} to '{}' ({}x{} px)",
+                page,
+                out.display(),
+                page_data.width,
+                page_data.height
+            );
         }
 
         Commands::Combine { inputs, out } => {
@@ -221,7 +239,11 @@ fn main() -> Result<()> {
             println!("Extracted {} pages into '{}'", to_keep.len(), out.display());
         }
 
-        Commands::Split { input, every, out_dir } => {
+        Commands::Split {
+            input,
+            every,
+            out_dir,
+        } => {
             let bytes = fs::read(&input)?;
             let chunks = rustpdf_organize::split_document(&bytes, SplitRule::EveryN(every))
                 .map_err(|e| anyhow::anyhow!("Split failed: {e}"))?;
@@ -241,7 +263,11 @@ fn main() -> Result<()> {
                 println!("Created '{}'", part_path.display());
             }
 
-            println!("Successfully split into {} files in '{}'", chunks.len(), out_dir.display());
+            println!(
+                "Successfully split into {} files in '{}'",
+                chunks.len(),
+                out_dir.display()
+            );
         }
     }
 
