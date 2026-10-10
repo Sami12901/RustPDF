@@ -14,7 +14,7 @@ use std::sync::Arc;
 pub struct OrganizerState {
     pub selected_pages: HashSet<usize>,
     pub last_selected: Option<usize>,
-    thumb_cache: HashMap<usize, TextureHandle>,
+    thumb_cache: HashMap<(u64, usize), TextureHandle>,
 }
 
 impl std::fmt::Debug for OrganizerState {
@@ -63,19 +63,25 @@ impl OrganizerState {
         self.last_selected = None;
     }
 
+    pub fn invalidate_doc(&mut self, doc_id: u64) {
+        self.thumb_cache.retain(|&(d, _), _| d != doc_id);
+    }
+
     pub fn poll_thumbnails(&mut self, ctx: &Context, pool: &RenderPool) {
         while let Some(res) = pool.try_recv() {
-            if res.tag == 999 && res.error.is_none() && res.width > 0 && res.height > 0 {
+            let doc_id = res.tag >> 32;
+            let zoom_tag = res.tag & 0xFFFF_FFFF;
+            if zoom_tag == 999 && res.error.is_none() && res.width > 0 && res.height > 0 {
                 let img = ColorImage::from_rgba_unmultiplied(
                     [res.width as usize, res.height as usize],
                     &res.rgba,
                 );
                 let handle = ctx.load_texture(
-                    format!("thumb_page_{}", res.page_index),
+                    format!("thumb_doc{}_page_{}", doc_id, res.page_index),
                     img,
                     TextureOptions::LINEAR,
                 );
-                self.thumb_cache.insert(res.page_index, handle);
+                self.thumb_cache.insert((doc_id, res.page_index), handle);
             }
         }
     }
@@ -224,7 +230,8 @@ impl OrganizerComponent {
                     );
 
                     // Thumbnail image or request
-                    if let Some(tex) = state.thumb_cache.get(&idx) {
+                    let doc_id = session.id;
+                    if let Some(tex) = state.thumb_cache.get(&(doc_id, idx)) {
                         ui.painter().image(
                             tex.id(),
                             thumb_rect.shrink(1.0),
@@ -232,13 +239,14 @@ impl OrganizerComponent {
                             Color32::WHITE,
                         );
                     } else {
+                        let request_tag = (doc_id << 32) | 999;
                         pool.submit(
                             Arc::clone(&session.raw_bytes),
                             None,
                             RenderRequest {
                                 page_index: idx,
                                 scale: 0.25, // Fast low-res thumbnail
-                                tag: 999,
+                                tag: request_tag,
                             },
                         );
 

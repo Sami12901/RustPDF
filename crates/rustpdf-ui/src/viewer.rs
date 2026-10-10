@@ -47,6 +47,7 @@ pub struct NewTextPlacement {
 
 #[derive(Clone)]
 pub struct ViewerState {
+    pub active_doc_id: Option<u64>,
     pub current_page: usize,
     pub zoom: f32, // 1.0 = 100%
     pub view_mode: ViewMode,
@@ -55,13 +56,14 @@ pub struct ViewerState {
     pub active_tool: EditTool,
     pub selected_edit: Option<SelectedTextEdit>,
     pub new_text_placement: Option<NewTextPlacement>,
-    pub text_blocks_cache: HashMap<usize, Vec<rustpdf_edit::PageTextBlock>>,
-    texture_cache: HashMap<(usize, u64), TextureHandle>,
+    pub text_blocks_cache: HashMap<(u64, usize), Vec<rustpdf_edit::PageTextBlock>>,
+    texture_cache: HashMap<(u64, usize, u64), TextureHandle>,
 }
 
 impl std::fmt::Debug for ViewerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ViewerState")
+            .field("active_doc_id", &self.active_doc_id)
             .field("current_page", &self.current_page)
             .field("zoom", &self.zoom)
             .field("view_mode", &self.view_mode)
@@ -75,6 +77,7 @@ impl std::fmt::Debug for ViewerState {
 impl Default for ViewerState {
     fn default() -> Self {
         Self {
+            active_doc_id: None,
             current_page: 0,
             zoom: 1.0,
             view_mode: ViewMode::Continuous,
@@ -116,31 +119,44 @@ impl ViewerState {
         }
     }
 
-    pub fn invalidate_page_texture(&mut self, page_index: usize) {
-        self.texture_cache.retain(|&(p, _), _| p != page_index);
-        self.text_blocks_cache.remove(&page_index);
+    pub fn invalidate_page_texture(&mut self, doc_id: u64, page_index: usize) {
+        self.texture_cache.retain(|&(d, p, _), _| !(d == doc_id && p == page_index));
+        self.text_blocks_cache.remove(&(doc_id, page_index));
+    }
+
+    pub fn invalidate_doc(&mut self, doc_id: u64) {
+        self.texture_cache.retain(|&(d, _, _), _| d != doc_id);
+        self.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
+        if self.active_doc_id == Some(doc_id) {
+            self.active_doc_id = None;
+            self.selected_edit = None;
+            self.new_text_placement = None;
+        }
     }
 
     /// Receives any finished raster pages from RenderPool and registers them with egui.
     pub fn poll_render_pool(&mut self, ctx: &Context, pool: &RenderPool) {
         while let Some(res) = pool.try_recv() {
-            if res.error.is_none() && res.width > 0 && res.height > 0 {
+            let doc_id = res.tag >> 32;
+            let zoom_tag = res.tag & 0xFFFF_FFFF;
+            // Ignore organizer thumbnail tags (zoom_tag == 999)
+            if zoom_tag != 999 && res.error.is_none() && res.width > 0 && res.height > 0 {
                 let img = ColorImage::from_rgba_unmultiplied(
                     [res.width as usize, res.height as usize],
                     &res.rgba,
                 );
                 let handle = ctx.load_texture(
-                    format!("pdf_page_{}_{}", res.page_index, res.tag),
+                    format!("pdf_page_doc{}_{}_{}", doc_id, res.page_index, zoom_tag),
                     img,
                     TextureOptions::LINEAR,
                 );
-                self.texture_cache.insert((res.page_index, res.tag), handle);
+                self.texture_cache.insert((doc_id, res.page_index, zoom_tag), handle);
             }
         }
     }
 
-    pub fn get_texture(&self, page_index: usize, tag: u64) -> Option<&TextureHandle> {
-        self.texture_cache.get(&(page_index, tag))
+    pub fn get_texture(&self, doc_id: u64, page_index: usize, zoom_tag: u64) -> Option<&TextureHandle> {
+        self.texture_cache.get(&(doc_id, page_index, zoom_tag))
     }
 }
 
@@ -154,6 +170,14 @@ impl ViewerComponent {
         pool: &RenderPool,
         accent_color: Color32,
     ) {
+        let doc_id = session.id;
+        if state.active_doc_id != Some(doc_id) {
+            state.active_doc_id = Some(doc_id);
+            state.current_page = 0;
+            state.selected_edit = None;
+            state.new_text_placement = None;
+        }
+
         let total_pages = session.page_count();
         if total_pages == 0 {
             ui.centered_and_justified(|ui| {
@@ -296,6 +320,7 @@ impl ViewerComponent {
         zoom_tag: u64,
         _accent_color: Color32,
     ) {
+        let doc_id = session.id;
         let Some(page_info) = session.model.pages.get(page_index).cloned() else {
             return;
         };
@@ -320,8 +345,10 @@ impl ViewerComponent {
             StrokeKind::Middle,
         );
 
+        let request_tag = (doc_id << 32) | (zoom_tag & 0xFFFF_FFFF);
+
         // Rasterized Page Texture
-        if let Some(tex) = state.get_texture(page_index, zoom_tag) {
+        if let Some(tex) = state.get_texture(doc_id, page_index, zoom_tag) {
             ui.painter().image(
                 tex.id(),
                 rect,
@@ -335,7 +362,7 @@ impl ViewerComponent {
                 RenderRequest {
                     page_index,
                     scale: state.zoom * 1.5,
-                    tag: zoom_tag,
+                    tag: request_tag,
                 },
             );
 
@@ -353,12 +380,12 @@ impl ViewerComponent {
         // =========================================================================
         if state.is_edit_mode {
             // Retrieve or cache text blocks for this page
-            if !state.text_blocks_cache.contains_key(&page_index) {
+            if !state.text_blocks_cache.contains_key(&(doc_id, page_index)) {
                 let blocks = session.get_page_text_blocks(page_index);
-                state.text_blocks_cache.insert(page_index, blocks);
+                state.text_blocks_cache.insert((doc_id, page_index), blocks);
             }
 
-            let blocks = state.text_blocks_cache.get(&page_index).cloned().unwrap_or_default();
+            let blocks = state.text_blocks_cache.get(&(doc_id, page_index)).cloned().unwrap_or_default();
             let mut clicked_block: Option<SelectedTextEdit> = None;
             let mut apply_replacement: Option<(String, String)> = None;
             let mut delete_text: Option<String> = None;
@@ -488,12 +515,12 @@ impl ViewerComponent {
             if let Some((orig, repl)) = apply_replacement {
                 if orig != repl && !orig.is_empty() {
                     let _ = session.search_and_replace_text(page_index, &orig, &repl);
-                    state.invalidate_page_texture(page_index);
+                    state.invalidate_page_texture(doc_id, page_index);
                 }
             }
             if let Some(target) = delete_text {
                 let _ = session.search_and_replace_text(page_index, &target, "");
-                state.invalidate_page_texture(page_index);
+                state.invalidate_page_texture(doc_id, page_index);
             }
 
             // =====================================================================
@@ -525,7 +552,7 @@ impl ViewerComponent {
                     if let Some(img_path) = rfd::FileDialog::new().add_filter("Image", &["png", "jpg", "jpeg", "webp"]).pick_file() {
                         if let Ok(bytes) = std::fs::read(&img_path) {
                             let _ = session.insert_image_to_page(page_index, &bytes, pt_x, pt_y, 160.0, 120.0);
-                            state.invalidate_page_texture(page_index);
+                            state.invalidate_page_texture(doc_id, page_index);
                             state.active_tool = EditTool::Select;
                         }
                     }
@@ -572,7 +599,7 @@ impl ViewerComponent {
                             placement.font_size,
                             [0.0, 0.0, 0.0],
                         );
-                        state.invalidate_page_texture(page_index);
+                        state.invalidate_page_texture(doc_id, page_index);
                         dismiss_new = true;
                     }
 

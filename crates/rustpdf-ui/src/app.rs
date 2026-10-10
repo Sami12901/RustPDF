@@ -78,15 +78,34 @@ impl RustPdfApp {
 
     pub fn open_file(&mut self, path: impl AsRef<Path>) {
         let p = path.as_ref();
+        // Check if file is already open in an existing session
+        if let Some(existing_idx) = self.sessions.iter().position(|s| s.file_path.as_deref() == Some(p)) {
+            self.active_tab = Some(existing_idx);
+            self.active_workspace = ActiveWorkspace::Viewer;
+            let doc_id = self.sessions[existing_idx].id;
+            if self.viewer_state.active_doc_id != Some(doc_id) {
+                self.viewer_state.active_doc_id = Some(doc_id);
+                self.viewer_state.current_page = 0;
+                self.viewer_state.selected_edit = None;
+                self.viewer_state.new_text_placement = None;
+            }
+            return;
+        }
+
         match DocumentSession::open_file(p) {
             Ok(session) => {
                 let page_count = session.page_count();
                 let file_size = session.raw_bytes.len();
+                let doc_id = session.id;
                 self.recent.add_or_update(p, page_count, file_size);
 
                 self.sessions.push(session);
                 self.active_tab = Some(self.sessions.len() - 1);
                 self.active_workspace = ActiveWorkspace::Viewer;
+                self.viewer_state.active_doc_id = Some(doc_id);
+                self.viewer_state.current_page = 0;
+                self.viewer_state.selected_edit = None;
+                self.viewer_state.new_text_placement = None;
             }
             Err(e) => {
                 log::error!("Failed to open file: {e}");
@@ -97,23 +116,39 @@ impl RustPdfApp {
     pub fn new_blank_document(&mut self) {
         if let Ok(bytes) = rustpdf_export::create_blank_pdf(1, 612.0, 792.0, "Untitled") {
             if let Ok(session) = DocumentSession::open_mem(bytes, None) {
+                let doc_id = session.id;
                 self.sessions.push(session);
                 self.active_tab = Some(self.sessions.len() - 1);
                 self.active_workspace = ActiveWorkspace::Viewer;
+                self.viewer_state.active_doc_id = Some(doc_id);
+                self.viewer_state.current_page = 0;
+                self.viewer_state.selected_edit = None;
+                self.viewer_state.new_text_placement = None;
             }
         }
     }
 
     pub fn close_tab(&mut self, index: usize) {
         if index < self.sessions.len() {
-            self.sessions.remove(index);
+            let removed = self.sessions.remove(index);
+            self.viewer_state.invalidate_doc(removed.id);
+            self.organizer_state.invalidate_doc(removed.id);
             if self.sessions.is_empty() {
                 self.active_tab = None;
                 self.active_workspace = ActiveWorkspace::Home;
-            } else if let Some(cur) = self.active_tab {
-                if cur >= index && cur > 0 {
-                    self.active_tab = Some(cur - 1);
-                }
+                self.viewer_state.active_doc_id = None;
+            } else {
+                let cur = self.active_tab.unwrap_or(0);
+                let new_idx = if cur >= self.sessions.len() {
+                    self.sessions.len() - 1
+                } else if cur > index {
+                    cur - 1
+                } else {
+                    cur
+                };
+                self.active_tab = Some(new_idx);
+                let new_id = self.sessions[new_idx].id;
+                self.viewer_state.active_doc_id = Some(new_id);
             }
         }
     }
@@ -388,6 +423,12 @@ impl App for RustPdfApp {
 
                     let resp = ui.selectable_label(is_active, tab_title);
                     if resp.clicked() {
+                        if self.active_tab != Some(idx) {
+                            self.viewer_state.active_doc_id = Some(session.id);
+                            self.viewer_state.current_page = 0;
+                            self.viewer_state.selected_edit = None;
+                            self.viewer_state.new_text_placement = None;
+                        }
                         self.active_tab = Some(idx);
                         self.active_workspace = ActiveWorkspace::Viewer;
                     }
@@ -507,7 +548,10 @@ impl App for RustPdfApp {
                             crate::tools_panel::ToolAction::EditTextAndImages => {
                                 self.viewer_state.is_edit_mode = !self.viewer_state.is_edit_mode;
                                 self.viewer_state.active_tool = crate::viewer::EditTool::Select;
-                                self.viewer_state.text_blocks_cache.clear();
+                                let doc_id = self.active_session().map(|s| s.id);
+                                if let Some(id) = doc_id {
+                                    self.viewer_state.text_blocks_cache.retain(|&(d, _), _| d != id);
+                                }
                                 self.active_workspace = ActiveWorkspace::Viewer;
                             }
                             crate::tools_panel::ToolAction::AddTextContent => {
