@@ -954,13 +954,8 @@ mod tests {
         let raw_stream = b"BT /F1 12 Tf 100 200 Td (Copyright 2026) Tj ET";
         let (mut doc, _) = create_test_page_doc(raw_stream);
 
-        let count = search_and_replace_text_in_page(
-            &mut doc,
-            0,
-            "Copyright",
-            "Copyright \u{00A9}",
-        )
-        .unwrap();
+        let count = search_and_replace_text_in_page(&mut doc, 0, "Copyright", "Copyright \u{00A9}")
+            .unwrap();
         assert_eq!(count, 1);
 
         let blocks = extract_page_text_blocks(&doc, 0);
@@ -1008,4 +1003,3 @@ mod tests {
         }
     }
 }
-

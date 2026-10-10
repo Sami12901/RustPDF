@@ -96,7 +96,9 @@ impl RustPdfApp {
         let target = if let Some(ref p) = session.file_path.clone() {
             Some(p.clone())
         } else {
-            rfd::FileDialog::new().add_filter("PDF", &["pdf"]).save_file()
+            rfd::FileDialog::new()
+                .add_filter("PDF", &["pdf"])
+                .save_file()
         };
 
         if let Some(path) = target {
@@ -116,7 +118,10 @@ impl RustPdfApp {
             return;
         };
         let session = &mut self.sessions[idx];
-        if let Some(path) = rfd::FileDialog::new().add_filter("PDF", &["pdf"]).save_file() {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("PDF", &["pdf"])
+            .save_file()
+        {
             match session.save_to(&path) {
                 Ok(()) => {
                     self.notify_success(format!("Saved as: {}", path.display()));

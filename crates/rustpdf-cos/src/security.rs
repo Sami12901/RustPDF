@@ -178,7 +178,10 @@ mod tests {
         let mut doc = LopdfDoc::with_version("1.7");
         let mut enc = lopdf::Dictionary::new();
         enc.set(b"Filter", Object::Name(b"Standard".to_vec()));
-        enc.set(b"P", Object::Integer(DocumentPermissions::read_only().to_p_value() as i64));
+        enc.set(
+            b"P",
+            Object::Integer(DocumentPermissions::read_only().to_p_value() as i64),
+        );
         let enc_id = doc.add_object(enc);
         doc.trailer.set(b"Encrypt", Object::Reference(enc_id));
 

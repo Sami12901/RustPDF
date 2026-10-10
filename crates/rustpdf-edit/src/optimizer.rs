@@ -1,7 +1,7 @@
 //! rustpdf-edit/optimizer — Safe PDF compression, stream Flate encoding, and object graph pruning.
 
-use lopdf::{Document as LopdfDoc, Object};
 use crate::EditError;
+use lopdf::{Document as LopdfDoc, Object};
 
 /// Summary report of PDF compression and optimization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,7 +82,8 @@ mod tests {
     #[test]
     fn test_compress_document_with_uncompressed_stream() {
         let mut doc = LopdfDoc::with_version("1.7");
-        let stream_data = b"q 1 0 0 1 0 0 cm /F1 12 Tf (Hello Uncompressed PDF World) Tj Q".repeat(20);
+        let stream_data =
+            b"q 1 0 0 1 0 0 cm /F1 12 Tf (Hello Uncompressed PDF World) Tj Q".repeat(20);
         let stream = lopdf::Stream::new(lopdf::Dictionary::new(), stream_data);
         let id = doc.add_object(stream);
         let mut pages = lopdf::Dictionary::new();
@@ -90,7 +91,7 @@ mod tests {
         pages.set(b"Kids", Object::Array(vec![]));
         pages.set(b"Count", Object::Integer(0));
         let pages_id = doc.add_object(pages);
-        
+
         let mut root = lopdf::Dictionary::new();
         root.set(b"Type", Object::Name(b"Catalog".to_vec()));
         root.set(b"Pages", Object::Reference(pages_id));
@@ -99,7 +100,10 @@ mod tests {
         doc.trailer.set(b"Root", Object::Reference(root_id));
 
         // Add an unreachable orphan object that should be pruned
-        let orphan = Object::String(b"I am an orphaned string".to_vec(), lopdf::StringFormat::Literal);
+        let orphan = Object::String(
+            b"I am an orphaned string".to_vec(),
+            lopdf::StringFormat::Literal,
+        );
         let _orphan_id = doc.add_object(orphan);
 
         let res = compress_document(&mut doc).unwrap();

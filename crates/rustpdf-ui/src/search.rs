@@ -68,12 +68,7 @@ impl SearchState {
     }
 
     /// Scans the document session for matching text across all pages.
-    pub fn update_search(
-        &mut self,
-        session: &DocumentSession,
-        doc_id: u64,
-        force: bool,
-    ) {
+    pub fn update_search(&mut self, session: &DocumentSession, doc_id: u64, force: bool) {
         let q = self.query.trim();
         if q.is_empty() {
             self.hits.clear();
@@ -173,11 +168,7 @@ pub struct SearchBarComponent;
 
 impl SearchBarComponent {
     /// Renders the search bar and returns `Some(target_page_index)` if navigation is triggered.
-    pub fn render(
-        ui: &mut Ui,
-        state: &mut SearchState,
-        accent_color: Color32,
-    ) -> Option<usize> {
+    pub fn render(ui: &mut Ui, state: &mut SearchState, accent_color: Color32) -> Option<usize> {
         if !state.is_open {
             return None;
         }
@@ -256,4 +247,3 @@ impl SearchBarComponent {
         nav_page
     }
 }
-
