@@ -436,3 +436,172 @@ pub fn add_link(
 
     Ok(())
 }
+
+/// Represents an editable text block extracted from a page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PageTextBlock {
+    pub id: usize,
+    pub text: String,
+    /// Bounding rectangle in page points: [x, y, width, height] where y is from bottom in PDF points
+    pub rect: [f32; 4],
+    pub font_size: f32,
+    pub font_name: String,
+}
+
+fn decode_pdf_string_object(obj: &Object) -> String {
+    match obj {
+        Object::String(bytes, _) => decode_pdf_bytes(bytes),
+        _ => String::new(),
+    }
+}
+
+fn decode_pdf_bytes(bytes: &[u8]) -> String {
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        let u16s: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .collect();
+        String::from_utf16_lossy(&u16s)
+    } else {
+        String::from_utf8(bytes.to_vec())
+            .unwrap_or_else(|_| bytes.iter().map(|&b| b as char).collect())
+    }
+}
+
+/// Extracts all text blocks with coordinates from a page's content streams.
+pub fn extract_page_text_blocks(doc: &LopdfDoc, page_index: usize) -> Vec<PageTextBlock> {
+    let mut blocks = Vec::new();
+    let page_map = doc.get_pages();
+    let page_num = (page_index + 1) as u32;
+    let Some(&page_id) = page_map.get(&page_num) else {
+        return blocks;
+    };
+
+    let content_ids: Vec<ObjectId> = {
+        let Ok(page) = doc.get_object(page_id).and_then(Object::as_dict) else {
+            return blocks;
+        };
+        match page.get(b"Contents") {
+            Ok(Object::Reference(id)) => vec![*id],
+            Ok(Object::Array(arr)) => arr.iter().filter_map(|o| o.as_reference().ok()).collect(),
+            _ => Vec::new(),
+        }
+    };
+
+    let mut block_id = 0;
+    for cid in content_ids {
+        if let Ok(Object::Stream(stream)) = doc.get_object(cid) {
+            let data = stream.decompressed_content().unwrap_or_else(|_| stream.content.clone());
+            if let Ok(content) = lopdf::content::Content::decode(&data) {
+                let mut current_font_size = 12.0;
+                let mut current_font_name = String::new();
+                let mut tm_x = 0.0;
+                let mut tm_y = 0.0;
+                let mut tlm_x = 0.0;
+                let mut tlm_y = 0.0;
+
+                for op in &content.operations {
+                    match op.operator.as_str() {
+                        "BT" => {
+                            tm_x = 0.0;
+                            tm_y = 0.0;
+                            tlm_x = 0.0;
+                            tlm_y = 0.0;
+                        }
+                        "Tf" => {
+                            if let Some(name_obj) = op.operands.first() {
+                                if let Ok(name) = name_obj.as_name() {
+                                    current_font_name = String::from_utf8_lossy(name).to_string();
+                                }
+                            }
+                            if let Some(size_obj) = op.operands.get(1) {
+                                if let Some(s) = get_f32_from_obj(size_obj) {
+                                    current_font_size = s;
+                                }
+                            }
+                        }
+                        "Tm" => {
+                            if op.operands.len() >= 6 {
+                                let e = get_f32_from_obj(&op.operands[4]).unwrap_or(0.0);
+                                let f = get_f32_from_obj(&op.operands[5]).unwrap_or(0.0);
+                                tm_x = e;
+                                tm_y = f;
+                                tlm_x = e;
+                                tlm_y = f;
+                            }
+                        }
+                        "Td" | "TD" => {
+                            if op.operands.len() >= 2 {
+                                let tx = get_f32_from_obj(&op.operands[0]).unwrap_or(0.0);
+                                let ty = get_f32_from_obj(&op.operands[1]).unwrap_or(0.0);
+                                tlm_x += tx;
+                                tlm_y += ty;
+                                tm_x = tlm_x;
+                                tm_y = tlm_y;
+                            }
+                        }
+                        "T*" => {
+                            tlm_y -= current_font_size * 1.2;
+                            tm_x = tlm_x;
+                            tm_y = tlm_y;
+                        }
+                        "Tj" | "'" | "\"" => {
+                            let text_obj = if op.operator == "\"" {
+                                op.operands.get(2)
+                            } else {
+                                op.operands.first()
+                            };
+                            if let Some(t_obj) = text_obj {
+                                let text_str = decode_pdf_string_object(t_obj);
+                                if !text_str.trim().is_empty() {
+                                    let width_est = (text_str.chars().count() as f32) * (current_font_size * 0.55);
+                                    let height_est = current_font_size * 1.25;
+                                    blocks.push(PageTextBlock {
+                                        id: block_id,
+                                        text: text_str,
+                                        rect: [tm_x, tm_y, width_est.max(20.0), height_est.max(12.0)],
+                                        font_size: current_font_size,
+                                        font_name: current_font_name.clone(),
+                                    });
+                                    block_id += 1;
+                                }
+                            }
+                        }
+                        "TJ" => {
+                            if let Some(arr_obj) = op.operands.first() {
+                                if let Ok(arr) = arr_obj.as_array() {
+                                    let mut line_text = String::new();
+                                    for item in arr {
+                                        if let Object::String(ref b, _) = item {
+                                            let s = decode_pdf_bytes(b);
+                                            line_text.push_str(&s);
+                                        } else if let Some(kern) = get_f32_from_obj(item) {
+                                            if kern < -150.0 && !line_text.ends_with(' ') {
+                                                line_text.push(' ');
+                                            }
+                                        }
+                                    }
+                                    if !line_text.trim().is_empty() {
+                                        let width_est = (line_text.chars().count() as f32) * (current_font_size * 0.55);
+                                        let height_est = current_font_size * 1.25;
+                                        blocks.push(PageTextBlock {
+                                            id: block_id,
+                                            text: line_text,
+                                            rect: [tm_x, tm_y, width_est.max(20.0), height_est.max(12.0)],
+                                            font_size: current_font_size,
+                                            font_name: current_font_name.clone(),
+                                        });
+                                        block_id += 1;
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    blocks
+}

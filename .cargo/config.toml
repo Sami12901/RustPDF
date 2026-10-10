@@ -1,6 +1,9 @@
 [build]
 jobs = 4
 
+[target.x86_64-pc-windows-gnu]
+rustflags = ["--cfg", "getrandom_backend=\"windows_legacy\""]
+
 [profile.test]
 incremental = false
 

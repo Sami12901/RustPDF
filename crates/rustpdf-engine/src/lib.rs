@@ -348,6 +348,11 @@ impl DocumentSession {
         rustpdf_edit::add_link(self.cos_doc.inner_mut(), page_index, rect, url)?;
         self.commit_in_memory_change(&format!("Add link to {url}"), old_bytes)
     }
+
+    /// Extracts text blocks with bounding box coordinates for interactive in-page editing.
+    pub fn get_page_text_blocks(&self, page_index: usize) -> Vec<rustpdf_edit::PageTextBlock> {
+        rustpdf_edit::extract_page_text_blocks(self.cos_doc.inner(), page_index)
+    }
 }
 
 #[cfg(test)]

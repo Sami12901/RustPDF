@@ -19,6 +19,7 @@ pub enum DrawerPage {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolBadge {
     Ready,
+    Active,
     M10,
     Available,
 }
@@ -116,6 +117,7 @@ impl ToolsPanelComponent {
         current_page: &mut DrawerPage,
         _accent: Color32,
         has_session: bool,
+        is_edit_active: bool,
     ) -> Option<ToolAction> {
         let mut action = None;
 
@@ -124,7 +126,7 @@ impl ToolsPanelComponent {
                 Self::render_all_tools(ui, &mut action, has_session);
             }
             DrawerPage::EditPdf => {
-                Self::render_edit_pdf(ui, &mut action, has_session);
+                Self::render_edit_pdf(ui, &mut action, has_session, is_edit_active);
             }
             DrawerPage::ExportPdf => {
                 Self::render_export_pdf(ui, &mut action, has_session);
@@ -309,7 +311,7 @@ impl ToolsPanelComponent {
     }
 
     /// Renders the `< Edit a PDF` subview matching user Screenshot 1.
-    fn render_edit_pdf(ui: &mut Ui, action: &mut Option<ToolAction>, _has_session: bool) {
+    fn render_edit_pdf(ui: &mut Ui, action: &mut Option<ToolAction>, _has_session: bool, is_edit_active: bool) {
         Self::render_subview_header(ui, action, "Edit a PDF");
 
         // Informational Notice Banner matching Screenshot 1
@@ -367,7 +369,8 @@ impl ToolsPanelComponent {
             // Section: ADD CONTENT
             Self::draw_section_header(ui, "ADD CONTENT");
 
-            if Self::draw_tool_row(ui, IconKind::PrepareForm, "Edit text & images", Some(ToolBadge::Ready), Some(magenta), true) {
+            let edit_badge = if is_edit_active { ToolBadge::Active } else { ToolBadge::Ready };
+            if Self::draw_tool_row(ui, IconKind::PrepareForm, "Edit text & images", Some(edit_badge), Some(magenta), true) {
                 *action = Some(ToolAction::EditTextAndImages);
             }
             if Self::draw_tool_row(ui, IconKind::AddText, "Text", Some(ToolBadge::Ready), Some(magenta), true) {
@@ -650,6 +653,7 @@ impl ToolsPanelComponent {
                 let badge_w = match b {
                     ToolBadge::M10 => 36.0,
                     ToolBadge::Ready => 48.0,
+                    ToolBadge::Active => 52.0,
                     ToolBadge::Available => 64.0,
                 };
                 let badge_h = 20.0;
@@ -659,6 +663,11 @@ impl ToolsPanelComponent {
                 );
 
                 let (badge_bg, badge_text_color, label) = match b {
+                    ToolBadge::Active => {
+                        let bg = if is_dark { Color32::from_rgb(30, 58, 138) } else { Color32::from_rgb(219, 234, 254) };
+                        let txt = if is_dark { Color32::from_rgb(96, 165, 250) } else { Color32::from_rgb(29, 78, 216) };
+                        (bg, txt, "Active")
+                    }
                     ToolBadge::Ready => {
                         let bg = if is_dark { Color32::from_rgb(26, 52, 40) } else { Color32::from_rgb(220, 252, 231) };
                         let txt = if is_dark { Color32::from_rgb(74, 222, 128) } else { Color32::from_rgb(21, 128, 61) };

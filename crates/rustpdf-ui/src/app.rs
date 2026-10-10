@@ -456,6 +456,7 @@ impl App for RustPdfApp {
                         &mut self.drawer_page,
                         accent,
                         has_session,
+                        self.viewer_state.is_edit_mode,
                     );
 
                     if let Some(act) = action {
@@ -503,14 +504,21 @@ impl App for RustPdfApp {
                                     }
                                 }
                             }
-                            crate::tools_panel::ToolAction::EditTextAndImages |
+                            crate::tools_panel::ToolAction::EditTextAndImages => {
+                                self.viewer_state.is_edit_mode = !self.viewer_state.is_edit_mode;
+                                self.viewer_state.active_tool = crate::viewer::EditTool::Select;
+                                self.viewer_state.text_blocks_cache.clear();
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                            }
                             crate::tools_panel::ToolAction::AddTextContent => {
-                                self.modals_state.edit_content_tab = crate::modals::EditContentTab::Text;
-                                self.modals_state.show_edit_content_dialog = true;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool = crate::viewer::EditTool::AddText;
+                                self.active_workspace = ActiveWorkspace::Viewer;
                             }
                             crate::tools_panel::ToolAction::AddImageContent => {
-                                self.modals_state.edit_content_tab = crate::modals::EditContentTab::Image;
-                                self.modals_state.show_edit_content_dialog = true;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool = crate::viewer::EditTool::AddImage;
+                                self.active_workspace = ActiveWorkspace::Viewer;
                             }
                             crate::tools_panel::ToolAction::Watermark => {
                                 self.modals_state.edit_content_tab = crate::modals::EditContentTab::Watermark;
@@ -897,7 +905,7 @@ impl App for RustPdfApp {
                 }
                 ActiveWorkspace::Viewer => {
                     if let Some(idx) = self.active_tab {
-                        let session = &self.sessions[idx];
+                        let session = &mut self.sessions[idx];
                         ViewerComponent::render(ui, session, &mut self.viewer_state, &self.render_pool, accent);
                     }
                 }
