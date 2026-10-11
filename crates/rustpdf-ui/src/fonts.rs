@@ -4,7 +4,7 @@
 
 use egui::{FontData, FontDefinitions, FontFamily};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Scans standard platform font paths and registers world language fallback fonts into egui.
 pub fn setup_global_fonts(ctx: &egui::Context) {
@@ -120,7 +120,7 @@ fn get_platform_font_candidates() -> PlatformFontCandidates {
     #[cfg(target_os = "windows")]
     {
         let win_dir = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-        let fonts_dir = Path::new(&win_dir).join("Fonts");
+        let fonts_dir = PathBuf::from(win_dir).join("Fonts");
 
         // Indic (covers Bengali, Devanagari, Tamil, Telugu, etc.)
         indic.push(fonts_dir.join("Nirmala.ttc"));

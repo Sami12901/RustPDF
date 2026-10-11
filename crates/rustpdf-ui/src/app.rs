@@ -265,6 +265,14 @@ impl RustPdfApp {
             self.search_state.open();
         }
 
+        // Ctrl+H: Find and Replace
+        if ctx.input_mut(|i| {
+            i.consume_key(Modifiers::COMMAND, Key::H) || i.consume_key(Modifiers::CTRL, Key::H)
+        }) {
+            self.search_state.open();
+            self.search_state.is_replace_open = true;
+        }
+
         // Ctrl+K: Command Palette
         if ctx.input_mut(|i| {
             i.consume_key(Modifiers::COMMAND, Key::K) || i.consume_key(Modifiers::CTRL, Key::K)
@@ -693,10 +701,121 @@ impl App for RustPdfApp {
                 }
             }
             Panel::top("search_bar_panel").show(ui, |ui| {
-                if let Some(target_page) =
+                if let Some(action) =
                     SearchBarComponent::render(ui, &mut self.search_state, accent)
                 {
-                    self.viewer_state.current_page = target_page;
+                    match action {
+                        crate::search::SearchBarAction::Navigate(target_page) => {
+                            self.viewer_state.current_page = target_page;
+                        }
+                        crate::search::SearchBarAction::ReplaceOne => {
+                            if let Some(hit) = self.search_state.current_match().cloned() {
+                                let q = self.search_state.query.clone();
+                                let repl = self.search_state.replace_query.clone();
+                                let is_case = self.search_state.case_sensitive;
+                                if let Some(idx) = self.active_tab {
+                                    let session = &mut self.sessions[idx];
+                                    let doc_id = session.id;
+                                    let blocks = session.get_page_text_blocks(hit.page_index);
+                                    let mut replacement_done = false;
+                                    if let Some(target_block) = blocks.into_iter().find(|b| {
+                                        if is_case {
+                                            b.text.contains(&q)
+                                        } else {
+                                            b.text.to_lowercase().contains(&q.to_lowercase())
+                                        }
+                                    }) {
+                                        let new_text = if is_case {
+                                            target_block.text.replacen(&q, &repl, 1)
+                                        } else {
+                                            let lower_text = target_block.text.to_lowercase();
+                                            let lower_q = q.to_lowercase();
+                                            if let Some(pos) = lower_text.find(&lower_q) {
+                                                let mut s = target_block.text.clone();
+                                                s.replace_range(pos..pos + q.len(), &repl);
+                                                s
+                                            } else {
+                                                target_block.text.clone()
+                                            }
+                                        };
+                                        if new_text != target_block.text {
+                                            let _ = session.replace_text_block(hit.page_index, &target_block, &new_text);
+                                            replacement_done = true;
+                                        }
+                                    }
+                                    if replacement_done {
+                                        self.viewer_state.invalidate_page_texture(doc_id, hit.page_index);
+                                        self.viewer_state.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
+                                        let session_ref = &self.sessions[idx];
+                                        self.search_state.update_search(session_ref, doc_id, true);
+                                        self.notify_success("Replaced 1 match");
+                                    }
+                                }
+                            }
+                        }
+                        crate::search::SearchBarAction::ReplaceAll => {
+                            let q = self.search_state.query.clone();
+                            let repl = self.search_state.replace_query.clone();
+                            let is_case = self.search_state.case_sensitive;
+                            if !q.is_empty() {
+                                if let Some(idx) = self.active_tab {
+                                    let session = &mut self.sessions[idx];
+                                    let doc_id = session.id;
+                                    let mut count = 0;
+                                    let mut modified_pages = Vec::new();
+                                    let num_pages = session.page_count();
+                                    for p_idx in 0..num_pages {
+                                        let blocks = session.get_page_text_blocks(p_idx);
+                                        let mut page_changed = false;
+                                        for block in blocks {
+                                            let has_match = if is_case {
+                                                block.text.contains(&q)
+                                            } else {
+                                                block.text.to_lowercase().contains(&q.to_lowercase())
+                                            };
+                                            if has_match {
+                                                let new_text = if is_case {
+                                                    block.text.replace(&q, &repl)
+                                                } else {
+                                                    let lower_q = q.to_lowercase();
+                                                    let mut result = String::new();
+                                                    let mut last_end = 0;
+                                                    let lower_text = block.text.to_lowercase();
+                                                    while let Some(pos) = lower_text[last_end..].find(&lower_q) {
+                                                        let abs_pos = last_end + pos;
+                                                        result.push_str(&block.text[last_end..abs_pos]);
+                                                        result.push_str(&repl);
+                                                        last_end = abs_pos + q.len();
+                                                    }
+                                                    result.push_str(&block.text[last_end..]);
+                                                    result
+                                                };
+                                                if new_text != block.text {
+                                                    let _ = session.replace_text_block(p_idx, &block, &new_text);
+                                                    page_changed = true;
+                                                    count += 1;
+                                                }
+                                            }
+                                        }
+                                        if page_changed {
+                                            modified_pages.push(p_idx);
+                                        }
+                                    }
+                                    for p_idx in modified_pages {
+                                        self.viewer_state.invalidate_page_texture(doc_id, p_idx);
+                                    }
+                                    if count > 0 {
+                                        self.viewer_state.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
+                                        let session_ref = &self.sessions[idx];
+                                        self.search_state.update_search(session_ref, doc_id, true);
+                                        self.notify_success(format!("Replaced {} occurrences across document", count));
+                                    } else {
+                                        self.notify_error("No matches found to replace");
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             });
         }
@@ -1108,7 +1227,11 @@ impl App for RustPdfApp {
                                 self.modals_state.show_forms_manager = true;
                             }
                             crate::tools_panel::ToolAction::AddStamp => {
-                                self.modals_state.show_annotations_manager = true;
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool =
+                                    crate::viewer::EditTool::Stamp(crate::viewer::StampKind::Checkmark);
+                                self.notify_success("Stamp tool active: click anywhere on page to stamp");
                             }
                             crate::tools_panel::ToolAction::UseCertificate => {
                                 log::warn!("Digital certificate signing is planned for a future release.");
@@ -1140,8 +1263,12 @@ impl App for RustPdfApp {
                             crate::tools_panel::ToolAction::AddStickyNote => {
                                 self.modals_state.show_annotations_manager = true;
                             }
+                            crate::tools_panel::ToolAction::AddFreehandInk => {
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                                self.viewer_state.active_tool = crate::viewer::EditTool::Draw;
+                                self.notify_success("Pencil tool active: click & drag on any page to draw");
+                            }
                             crate::tools_panel::ToolAction::AddHighlight
-                            | crate::tools_panel::ToolAction::AddFreehandInk
                             | crate::tools_panel::ToolAction::AddShape => {
                                 self.modals_state.show_annotations_manager = true;
                             }

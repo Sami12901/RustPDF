@@ -2,7 +2,7 @@
 
 use egui::{
     pos2, vec2, Align2, Color32, ColorImage, Context, CornerRadius, Id, Key, Order, Rect,
-    ScrollArea, Stroke, StrokeKind, TextEdit, TextureHandle, TextureOptions, Ui,
+    RichText, ScrollArea, Stroke, StrokeKind, TextEdit, TextureHandle, TextureOptions, Ui,
 };
 use rustpdf_engine::DocumentSession;
 use rustpdf_fonts::StandardFont;
@@ -78,6 +78,12 @@ pub struct NewTextPlacement {
     pub font_size: f32,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActiveDrawStroke {
+    pub page_index: usize,
+    pub points: Vec<(f32, f32)>,
+}
+
 #[derive(Clone)]
 pub struct ViewerState {
     pub active_doc_id: Option<u64>,
@@ -90,6 +96,9 @@ pub struct ViewerState {
     pub selected_edit: Option<SelectedTextEdit>,
     pub selected_image: Option<SelectedImageEdit>,
     pub new_text_placement: Option<NewTextPlacement>,
+    pub draw_stroke: Option<ActiveDrawStroke>,
+    pub draw_color: [f32; 3],
+    pub draw_width: f32,
     pub text_blocks_cache: HashMap<(u64, usize), Vec<rustpdf_edit::PageTextBlock>>,
     pub image_blocks_cache: HashMap<(u64, usize), Vec<rustpdf_edit::PageImageBlock>>,
     texture_cache: HashMap<(u64, usize, u64), TextureHandle>,
@@ -122,6 +131,9 @@ impl Default for ViewerState {
             selected_edit: None,
             selected_image: None,
             new_text_placement: None,
+            draw_stroke: None,
+            draw_color: [0.15, 0.45, 0.90],
+            draw_width: 2.5,
             text_blocks_cache: HashMap::new(),
             image_blocks_cache: HashMap::new(),
             texture_cache: HashMap::new(),
@@ -168,7 +180,9 @@ impl ViewerState {
         if self.active_doc_id == Some(doc_id) {
             self.active_doc_id = None;
             self.selected_edit = None;
+            self.selected_image = None;
             self.new_text_placement = None;
+            self.draw_stroke = None;
         }
     }
 
@@ -220,7 +234,9 @@ impl ViewerComponent {
             state.active_doc_id = Some(doc_id);
             state.current_page = 0;
             state.selected_edit = None;
+            state.selected_image = None;
             state.new_text_placement = None;
+            state.draw_stroke = None;
         }
 
         let total_pages = session.page_count();
@@ -394,22 +410,93 @@ impl ViewerComponent {
                         let is_draw = state.active_tool == EditTool::Draw;
                         if ui
                             .selectable_label(is_draw, " ✏ ")
-                            .on_hover_text("Pencil / Draw Annotation")
+                            .on_hover_text("Pencil / Draw Freehand (Click & drag on page)")
                             .clicked()
                         {
                             state.active_tool = EditTool::Draw;
+                            state.selected_edit = None;
+                            state.selected_image = None;
                         }
 
-                        // Tool 6: Fill & Sign Stamp (Checkmark)
-                        let is_stamp = matches!(state.active_tool, EditTool::Stamp(_));
-                        if ui
-                            .selectable_label(is_stamp, " ✔ ")
-                            .on_hover_text("Stamp Symbol (Click on page)")
-                            .clicked()
-                        {
-                            state.is_edit_mode = true;
-                            state.active_tool = EditTool::Stamp(StampKind::Checkmark);
-                        }
+                        // Tool 6: Fill & Sign Stamp (with picker for Checkmark, Cross, Dot, Line, Date, Signature)
+                        let stamp_btn_label = match state.active_tool {
+                            EditTool::Stamp(StampKind::Checkmark) => " ✔ ",
+                            EditTool::Stamp(StampKind::Cross) => " ✕ ",
+                            EditTool::Stamp(StampKind::Dot) => " ● ",
+                            EditTool::Stamp(StampKind::Line) => " — ",
+                            EditTool::Stamp(StampKind::Date) => " 📅 ",
+                            EditTool::Stamp(StampKind::Signature) => " ✍ ",
+                            _ => " ✔ ",
+                        };
+                        ui.menu_button(stamp_btn_label, |ui| {
+                            ui.label(RichText::new("Choose Stamp:").strong().size(11.0));
+                            if ui
+                                .selectable_label(
+                                    matches!(state.active_tool, EditTool::Stamp(StampKind::Checkmark)),
+                                    "✔ Checkmark",
+                                )
+                                .clicked()
+                            {
+                                state.is_edit_mode = true;
+                                state.active_tool = EditTool::Stamp(StampKind::Checkmark);
+                                ui.close();
+                            }
+                            if ui
+                                .selectable_label(
+                                    matches!(state.active_tool, EditTool::Stamp(StampKind::Cross)),
+                                    "✕ Cross",
+                                )
+                                .clicked()
+                            {
+                                state.is_edit_mode = true;
+                                state.active_tool = EditTool::Stamp(StampKind::Cross);
+                                ui.close();
+                            }
+                            if ui
+                                .selectable_label(
+                                    matches!(state.active_tool, EditTool::Stamp(StampKind::Dot)),
+                                    "● Dot",
+                                )
+                                .clicked()
+                            {
+                                state.is_edit_mode = true;
+                                state.active_tool = EditTool::Stamp(StampKind::Dot);
+                                ui.close();
+                            }
+                            if ui
+                                .selectable_label(
+                                    matches!(state.active_tool, EditTool::Stamp(StampKind::Line)),
+                                    "— Line",
+                                )
+                                .clicked()
+                            {
+                                state.is_edit_mode = true;
+                                state.active_tool = EditTool::Stamp(StampKind::Line);
+                                ui.close();
+                            }
+                            if ui
+                                .selectable_label(
+                                    matches!(state.active_tool, EditTool::Stamp(StampKind::Date)),
+                                    "📅 Date",
+                                )
+                                .clicked()
+                            {
+                                state.is_edit_mode = true;
+                                state.active_tool = EditTool::Stamp(StampKind::Date);
+                                ui.close();
+                            }
+                            if ui
+                                .selectable_label(
+                                    matches!(state.active_tool, EditTool::Stamp(StampKind::Signature)),
+                                    "✍ Signature",
+                                )
+                                .clicked()
+                            {
+                                state.is_edit_mode = true;
+                                state.active_tool = EditTool::Stamp(StampKind::Signature);
+                                ui.close();
+                            }
+                        });
 
                         ui.separator();
 
@@ -463,6 +550,106 @@ impl ViewerComponent {
 
         let (rect, resp) =
             ui.allocate_exact_size(vec2(width_px, height_px), egui::Sense::click_and_drag());
+
+        // -------------------------------------------------------------------------
+        // TOOL: HAND / PAN DOCUMENT VIEWPORT
+        // -------------------------------------------------------------------------
+        if state.active_tool == EditTool::Hand {
+            if resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                ui.scroll_with_delta(resp.drag_delta());
+            } else if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // TOOL: PENCIL / FREEHAND INK DRAWING
+        // -------------------------------------------------------------------------
+        if state.active_tool == EditTool::Draw {
+            if resp.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            }
+
+            if let Some(pos) = ui.input(|i| i.pointer.interact_pos().or(i.pointer.hover_pos())) {
+                let is_drawing_this_page = state
+                    .draw_stroke
+                    .as_ref()
+                    .map_or(false, |s| s.page_index == page_index);
+
+                if (rect.contains(pos) && (resp.dragged() || resp.drag_started()))
+                    || (is_drawing_this_page && ui.input(|i| i.pointer.primary_down()))
+                {
+                    let pt_x = (((pos.x - rect.min.x) / rect.width()) * page_info.width)
+                        .clamp(0.0, page_info.width);
+                    let pt_y = (((rect.max.y - pos.y) / rect.height()) * page_info.height)
+                        .clamp(0.0, page_info.height);
+
+                    if let Some(ref mut stroke) = state.draw_stroke {
+                        if stroke.page_index == page_index {
+                            let should_push = stroke.points.last().map_or(true, |&(lx, ly)| {
+                                let dx = lx - pt_x;
+                                let dy = ly - pt_y;
+                                (dx * dx + dy * dy) > 1.5
+                            });
+                            if should_push {
+                                stroke.points.push((pt_x, pt_y));
+                            }
+                        }
+                    } else if resp.drag_started() || (resp.dragged() && rect.contains(pos)) {
+                        state.draw_stroke = Some(ActiveDrawStroke {
+                            page_index,
+                            points: vec![(pt_x, pt_y)],
+                        });
+                    }
+                }
+            }
+
+            // Finish stroke when dragging stops or pointer is released
+            let pointer_released = !ui.input(|i| i.pointer.primary_down());
+            let is_this_page_stroke = state
+                .draw_stroke
+                .as_ref()
+                .map_or(false, |s| s.page_index == page_index);
+
+            if (resp.drag_stopped() || pointer_released) && is_this_page_stroke {
+                if let Some(stroke) = state.draw_stroke.take() {
+                    if stroke.points.len() >= 2 {
+                        let mut min_x = f32::MAX;
+                        let mut max_x = f32::MIN;
+                        let mut min_y = f32::MAX;
+                        let mut max_y = f32::MIN;
+                        for &(px, py) in &stroke.points {
+                            min_x = min_x.min(px);
+                            max_x = max_x.max(px);
+                            min_y = min_y.min(py);
+                            max_y = max_y.max(py);
+                        }
+                        let annot_rect = rustpdf_geom::Rect::new(
+                            (min_x - 3.0).max(0.0),
+                            (min_y - 3.0).max(0.0),
+                            (max_x + 3.0).min(page_info.width),
+                            (max_y + 3.0).min(page_info.height),
+                        );
+                        let annot = rustpdf_annot::Annotation {
+                            id: None,
+                            page_index,
+                            annot_type: rustpdf_annot::AnnotType::Ink,
+                            rect: annot_rect,
+                            color: state.draw_color,
+                            contents: Some("Ink Drawing".to_string()),
+                            author: Some("Freehand Pen".to_string()),
+                            date: Some(
+                                chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
+                            ),
+                            ink_paths: Some(vec![stroke.points]),
+                        };
+                        let _ = session.add_annotation(&annot);
+                        state.invalidate_page_texture(doc_id, page_index);
+                    }
+                }
+            }
+        }
 
         // Drop shadow & White paper background
         let shadow_rect = rect.translate(vec2(3.0, 4.0));
@@ -1194,7 +1381,30 @@ impl ViewerComponent {
             }
         }
 
-        // Live overlay rendering of document annotations (Fill & Sign items, text notes, signatures)
+        // Live rendering of current in-progress drawing stroke
+        if let Some(ref stroke) = state.draw_stroke {
+            if stroke.page_index == page_index && stroke.points.len() >= 2 {
+                let draw_col = Color32::from_rgb(
+                    (state.draw_color[0] * 255.0) as u8,
+                    (state.draw_color[1] * 255.0) as u8,
+                    (state.draw_color[2] * 255.0) as u8,
+                );
+                let stroke_px = (state.draw_width * state.zoom).clamp(1.5, 8.0);
+                for win in stroke.points.windows(2) {
+                    let p0 = pos2(
+                        rect.min.x + (win[0].0 / page_info.width) * rect.width(),
+                        rect.max.y - (win[0].1 / page_info.height) * rect.height(),
+                    );
+                    let p1 = pos2(
+                        rect.min.x + (win[1].0 / page_info.width) * rect.width(),
+                        rect.max.y - (win[1].1 / page_info.height) * rect.height(),
+                    );
+                    ui.painter().line_segment([p0, p1], Stroke::new(stroke_px, draw_col));
+                }
+            }
+        }
+
+        // Live overlay rendering of document annotations (Ink drawings, stamps, notes, shapes)
         let annots = session.get_annotations(page_index);
         for a in annots {
             let x0 = rect.min.x + (a.rect.min_x / page_info.width) * rect.width();
@@ -1210,41 +1420,102 @@ impl ViewerComponent {
                 (a.color[2] * 255.0) as u8,
             );
 
-            if let Some(ref text) = a.contents {
-                let bg_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 25);
-                ui.painter()
-                    .rect_filled(annot_rect, CornerRadius::same(3), bg_color);
-                ui.painter().rect_stroke(
-                    annot_rect,
-                    CornerRadius::same(3),
-                    Stroke::new(1.0, color),
-                    StrokeKind::Inside,
-                );
-                let font_size = (13.0 * state.zoom).clamp(9.0, 24.0);
-                ui.painter().text(
-                    annot_rect.min + vec2(4.0, 2.0),
-                    Align2::LEFT_TOP,
-                    text,
-                    egui::FontId::proportional(font_size),
-                    color,
-                );
-            } else if a.annot_type == rustpdf_annot::AnnotType::Circle {
-                ui.painter().circle_stroke(
-                    annot_rect.center(),
-                    annot_rect.width() * 0.45,
-                    Stroke::new(2.0, color),
-                );
-                ui.painter()
-                    .circle_filled(annot_rect.center(), annot_rect.width() * 0.20, color);
-            } else if a.annot_type == rustpdf_annot::AnnotType::Line {
-                ui.painter().line_segment(
-                    [
-                        pos2(annot_rect.min.x, annot_rect.center().y),
-                        pos2(annot_rect.max.x, annot_rect.center().y),
-                    ],
-                    Stroke::new(2.0, color),
-                );
+            match a.annot_type {
+                rustpdf_annot::AnnotType::Ink => {
+                    if let Some(ref paths) = a.ink_paths {
+                        let stroke_px = (2.5 * state.zoom).clamp(1.5, 8.0);
+                        for path in paths {
+                            for win in path.windows(2) {
+                                let p0 = pos2(
+                                    rect.min.x + (win[0].0 / page_info.width) * rect.width(),
+                                    rect.max.y - (win[0].1 / page_info.height) * rect.height(),
+                                );
+                                let p1 = pos2(
+                                    rect.min.x + (win[1].0 / page_info.width) * rect.width(),
+                                    rect.max.y - (win[1].1 / page_info.height) * rect.height(),
+                                );
+                                ui.painter().line_segment([p0, p1], Stroke::new(stroke_px, color));
+                            }
+                        }
+                    }
+                }
+                rustpdf_annot::AnnotType::Circle => {
+                    let radius = (annot_rect.width().min(annot_rect.height()) * 0.45).max(3.0);
+                    ui.painter().circle_stroke(annot_rect.center(), radius, Stroke::new(2.0, color));
+                    ui.painter().circle_filled(annot_rect.center(), radius * 0.4, color);
+                }
+                rustpdf_annot::AnnotType::Line => {
+                    ui.painter().line_segment(
+                        [
+                            pos2(annot_rect.min.x, annot_rect.center().y),
+                            pos2(annot_rect.max.x, annot_rect.center().y),
+                        ],
+                        Stroke::new(2.0, color),
+                    );
+                }
+                _ => {
+                    if let Some(ref text) = a.contents {
+                        let bg_color =
+                            Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 25);
+                        ui.painter()
+                            .rect_filled(annot_rect, CornerRadius::same(3), bg_color);
+                        ui.painter().rect_stroke(
+                            annot_rect,
+                            CornerRadius::same(3),
+                            Stroke::new(1.0, color),
+                            StrokeKind::Inside,
+                        );
+                        let font_size = (13.0 * state.zoom).clamp(9.0, 24.0);
+                        ui.painter().text(
+                            annot_rect.min + vec2(4.0, 2.0),
+                            Align2::LEFT_TOP,
+                            text,
+                            egui::FontId::proportional(font_size),
+                            color,
+                        );
+                    }
+                }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_viewer_state_defaults_and_drawing() {
+        let mut state = ViewerState::default();
+        assert_eq!(state.active_tool, EditTool::Select);
+        assert!(!state.is_edit_mode);
+        assert_eq!(state.zoom, 1.0);
+        assert!(state.draw_stroke.is_none());
+
+        // Test stroke recording
+        state.active_tool = EditTool::Draw;
+        state.draw_stroke = Some(ActiveDrawStroke {
+            page_index: 0,
+            points: vec![(100.0, 200.0), (105.0, 205.0)],
+        });
+
+        assert_eq!(state.draw_stroke.as_ref().unwrap().points.len(), 2);
+
+        // Test zoom math
+        state.zoom_in();
+        assert!(state.zoom > 1.0);
+        state.zoom_out();
+        state.set_zoom(2.5);
+        assert_eq!(state.zoom, 2.5);
+    }
+
+    #[test]
+    fn test_stamp_kinds() {
+        assert_eq!(StampKind::Checkmark.label(), "Checkmark");
+        assert_eq!(StampKind::Cross.label(), "Cross");
+        assert_eq!(StampKind::Dot.label(), "Dot");
+        assert_eq!(StampKind::Line.label(), "Line");
+        assert_eq!(StampKind::Date.label(), "Date");
+        assert_eq!(StampKind::Signature.label(), "Signature");
     }
 }

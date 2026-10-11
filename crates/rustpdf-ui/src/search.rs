@@ -12,10 +12,19 @@ pub struct SearchHit {
     pub text: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchBarAction {
+    Navigate(usize),
+    ReplaceOne,
+    ReplaceAll,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct SearchState {
     pub is_open: bool,
+    pub is_replace_open: bool,
     pub query: String,
+    pub replace_query: String,
     pub case_sensitive: bool,
     pub whole_words: bool,
     pub active_match_index: usize,
@@ -33,7 +42,9 @@ impl SearchState {
 
     pub fn close(&mut self) {
         self.is_open = false;
+        self.is_replace_open = false;
         self.query.clear();
+        self.replace_query.clear();
         self.hits.clear();
         self.active_match_index = 0;
         self.last_searched_query.clear();
@@ -167,13 +178,17 @@ impl SearchState {
 pub struct SearchBarComponent;
 
 impl SearchBarComponent {
-    /// Renders the search bar and returns `Some(target_page_index)` if navigation is triggered.
-    pub fn render(ui: &mut Ui, state: &mut SearchState, accent_color: Color32) -> Option<usize> {
+    /// Renders the search bar and returns `Some(SearchBarAction)` if navigation or replacement is triggered.
+    pub fn render(
+        ui: &mut Ui,
+        state: &mut SearchState,
+        accent_color: Color32,
+    ) -> Option<SearchBarAction> {
         if !state.is_open {
             return None;
         }
 
-        let mut nav_page = None;
+        let mut triggered_action = None;
 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
@@ -190,15 +205,17 @@ impl SearchBarComponent {
                 state.active_match_index = 0;
                 // If hits exist on text change, navigate to the first hit's page
                 if let Some(first_hit) = state.hits.first() {
-                    nav_page = Some(first_hit.page_index);
+                    triggered_action = Some(SearchBarAction::Navigate(first_hit.page_index));
                 }
             }
 
             if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 if ui.input(|i| i.modifiers.shift) {
-                    nav_page = state.prev_match();
-                } else {
-                    nav_page = state.next_match();
+                    if let Some(p) = state.prev_match() {
+                        triggered_action = Some(SearchBarAction::Navigate(p));
+                    }
+                } else if let Some(p) = state.next_match() {
+                    triggered_action = Some(SearchBarAction::Navigate(p));
                 }
             }
 
@@ -222,11 +239,15 @@ impl SearchBarComponent {
                 .on_hover_text("Previous match (Shift+Enter)")
                 .clicked()
             {
-                nav_page = state.prev_match();
+                if let Some(p) = state.prev_match() {
+                    triggered_action = Some(SearchBarAction::Navigate(p));
+                }
             }
 
             if ui.button("▼").on_hover_text("Next match (Enter)").clicked() {
-                nav_page = state.next_match();
+                if let Some(p) = state.next_match() {
+                    triggered_action = Some(SearchBarAction::Navigate(p));
+                }
             }
 
             ui.checkbox(&mut state.case_sensitive, "Aa")
@@ -235,6 +256,21 @@ impl SearchBarComponent {
             ui.checkbox(&mut state.whole_words, "W")
                 .on_hover_text("Match whole words");
 
+            ui.separator();
+
+            let repl_toggle = if state.is_replace_open {
+                "▼ Replace"
+            } else {
+                "▶ Replace"
+            };
+            if ui
+                .selectable_label(state.is_replace_open, repl_toggle)
+                .on_hover_text("Toggle Replace controls (Ctrl+H)")
+                .clicked()
+            {
+                state.is_replace_open = !state.is_replace_open;
+            }
+
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.button("✖").clicked() {
                     state.close();
@@ -242,8 +278,64 @@ impl SearchBarComponent {
             });
         });
 
+        if state.is_replace_open {
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+
+                ui.label(RichText::new("⮀").size(13.0));
+
+                ui.add(
+                    TextEdit::singleline(&mut state.replace_query)
+                        .hint_text("Replace with...")
+                        .desired_width(180.0),
+                );
+
+                if ui
+                    .button("Replace")
+                    .on_hover_text("Replace currently selected match")
+                    .clicked()
+                {
+                    triggered_action = Some(SearchBarAction::ReplaceOne);
+                }
+
+                if ui
+                    .button("Replace All")
+                    .on_hover_text("Replace all occurrences throughout document")
+                    .clicked()
+                {
+                    triggered_action = Some(SearchBarAction::ReplaceAll);
+                }
+            });
+        }
+
         ui.separator();
 
-        nav_page
+        triggered_action
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_search_state_replace_controls() {
+        let mut state = SearchState::default();
+        assert!(!state.is_open);
+        assert!(!state.is_replace_open);
+
+        state.open();
+        assert!(state.is_open);
+
+        state.is_replace_open = true;
+        state.query = "Hello".to_string();
+        state.replace_query = "World".to_string();
+
+        state.close();
+        assert!(!state.is_open);
+        assert!(!state.is_replace_open);
+        assert!(state.query.is_empty());
+        assert!(state.replace_query.is_empty());
     }
 }
