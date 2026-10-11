@@ -701,8 +701,7 @@ impl App for RustPdfApp {
                 }
             }
             Panel::top("search_bar_panel").show(ui, |ui| {
-                if let Some(action) =
-                    SearchBarComponent::render(ui, &mut self.search_state, accent)
+                if let Some(action) = SearchBarComponent::render(ui, &mut self.search_state, accent)
                 {
                     match action {
                         crate::search::SearchBarAction::Navigate(target_page) => {
@@ -739,13 +738,20 @@ impl App for RustPdfApp {
                                             }
                                         };
                                         if new_text != target_block.text {
-                                            let _ = session.replace_text_block(hit.page_index, &target_block, &new_text);
+                                            let _ = session.replace_text_block(
+                                                hit.page_index,
+                                                &target_block,
+                                                &new_text,
+                                            );
                                             replacement_done = true;
                                         }
                                     }
                                     if replacement_done {
-                                        self.viewer_state.invalidate_page_texture(doc_id, hit.page_index);
-                                        self.viewer_state.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
+                                        self.viewer_state
+                                            .invalidate_page_texture(doc_id, hit.page_index);
+                                        self.viewer_state
+                                            .text_blocks_cache
+                                            .retain(|&(d, _), _| d != doc_id);
                                         let session_ref = &self.sessions[idx];
                                         self.search_state.update_search(session_ref, doc_id, true);
                                         self.notify_success("Replaced 1 match");
@@ -771,7 +777,10 @@ impl App for RustPdfApp {
                                             let has_match = if is_case {
                                                 block.text.contains(&q)
                                             } else {
-                                                block.text.to_lowercase().contains(&q.to_lowercase())
+                                                block
+                                                    .text
+                                                    .to_lowercase()
+                                                    .contains(&q.to_lowercase())
                                             };
                                             if has_match {
                                                 let new_text = if is_case {
@@ -781,9 +790,13 @@ impl App for RustPdfApp {
                                                     let mut result = String::new();
                                                     let mut last_end = 0;
                                                     let lower_text = block.text.to_lowercase();
-                                                    while let Some(pos) = lower_text[last_end..].find(&lower_q) {
+                                                    while let Some(pos) =
+                                                        lower_text[last_end..].find(&lower_q)
+                                                    {
                                                         let abs_pos = last_end + pos;
-                                                        result.push_str(&block.text[last_end..abs_pos]);
+                                                        result.push_str(
+                                                            &block.text[last_end..abs_pos],
+                                                        );
                                                         result.push_str(&repl);
                                                         last_end = abs_pos + q.len();
                                                     }
@@ -791,7 +804,9 @@ impl App for RustPdfApp {
                                                     result
                                                 };
                                                 if new_text != block.text {
-                                                    let _ = session.replace_text_block(p_idx, &block, &new_text);
+                                                    let _ = session.replace_text_block(
+                                                        p_idx, &block, &new_text,
+                                                    );
                                                     page_changed = true;
                                                     count += 1;
                                                 }
@@ -805,10 +820,15 @@ impl App for RustPdfApp {
                                         self.viewer_state.invalidate_page_texture(doc_id, p_idx);
                                     }
                                     if count > 0 {
-                                        self.viewer_state.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
+                                        self.viewer_state
+                                            .text_blocks_cache
+                                            .retain(|&(d, _), _| d != doc_id);
                                         let session_ref = &self.sessions[idx];
                                         self.search_state.update_search(session_ref, doc_id, true);
-                                        self.notify_success(format!("Replaced {} occurrences across document", count));
+                                        self.notify_success(format!(
+                                            "Replaced {} occurrences across document",
+                                            count
+                                        ));
                                     } else {
                                         self.notify_error("No matches found to replace");
                                     }

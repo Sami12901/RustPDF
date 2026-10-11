@@ -1,8 +1,8 @@
 //! rustpdf-ui/viewer — Document viewport, continuous scrolling, zoom, and interactive in-place text & image editing.
 
 use egui::{
-    pos2, vec2, Align2, Color32, ColorImage, Context, CornerRadius, Id, Key, Order, Rect,
-    RichText, ScrollArea, Stroke, StrokeKind, TextEdit, TextureHandle, TextureOptions, Ui,
+    pos2, vec2, Align2, Color32, ColorImage, Context, CornerRadius, Id, Key, Order, Rect, RichText,
+    ScrollArea, Stroke, StrokeKind, TextEdit, TextureHandle, TextureOptions, Ui,
 };
 use rustpdf_engine::DocumentSession;
 use rustpdf_fonts::StandardFont;
@@ -432,7 +432,10 @@ impl ViewerComponent {
                             ui.label(RichText::new("Choose Stamp:").strong().size(11.0));
                             if ui
                                 .selectable_label(
-                                    matches!(state.active_tool, EditTool::Stamp(StampKind::Checkmark)),
+                                    matches!(
+                                        state.active_tool,
+                                        EditTool::Stamp(StampKind::Checkmark)
+                                    ),
                                     "✔ Checkmark",
                                 )
                                 .clicked()
@@ -487,7 +490,10 @@ impl ViewerComponent {
                             }
                             if ui
                                 .selectable_label(
-                                    matches!(state.active_tool, EditTool::Stamp(StampKind::Signature)),
+                                    matches!(
+                                        state.active_tool,
+                                        EditTool::Stamp(StampKind::Signature)
+                                    ),
                                     "✍ Signature",
                                 )
                                 .clicked()
@@ -639,9 +645,7 @@ impl ViewerComponent {
                             color: state.draw_color,
                             contents: Some("Ink Drawing".to_string()),
                             author: Some("Freehand Pen".to_string()),
-                            date: Some(
-                                chrono::Local::now().format("%Y-%m-%d %H:%M").to_string(),
-                            ),
+                            date: Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
                             ink_paths: Some(vec![stroke.points]),
                         };
                         let _ = session.add_annotation(&annot);
@@ -1399,7 +1403,8 @@ impl ViewerComponent {
                         rect.min.x + (win[1].0 / page_info.width) * rect.width(),
                         rect.max.y - (win[1].1 / page_info.height) * rect.height(),
                     );
-                    ui.painter().line_segment([p0, p1], Stroke::new(stroke_px, draw_col));
+                    ui.painter()
+                        .line_segment([p0, p1], Stroke::new(stroke_px, draw_col));
                 }
             }
         }
@@ -1434,15 +1439,21 @@ impl ViewerComponent {
                                     rect.min.x + (win[1].0 / page_info.width) * rect.width(),
                                     rect.max.y - (win[1].1 / page_info.height) * rect.height(),
                                 );
-                                ui.painter().line_segment([p0, p1], Stroke::new(stroke_px, color));
+                                ui.painter()
+                                    .line_segment([p0, p1], Stroke::new(stroke_px, color));
                             }
                         }
                     }
                 }
                 rustpdf_annot::AnnotType::Circle => {
                     let radius = (annot_rect.width().min(annot_rect.height()) * 0.45).max(3.0);
-                    ui.painter().circle_stroke(annot_rect.center(), radius, Stroke::new(2.0, color));
-                    ui.painter().circle_filled(annot_rect.center(), radius * 0.4, color);
+                    ui.painter().circle_stroke(
+                        annot_rect.center(),
+                        radius,
+                        Stroke::new(2.0, color),
+                    );
+                    ui.painter()
+                        .circle_filled(annot_rect.center(), radius * 0.4, color);
                 }
                 rustpdf_annot::AnnotType::Line => {
                     ui.painter().line_segment(
