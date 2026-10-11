@@ -62,6 +62,14 @@ pub struct SelectedTextEdit {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct SelectedImageEdit {
+    pub page_index: usize,
+    pub block_id: usize,
+    pub target_block: rustpdf_edit::PageImageBlock,
+    pub screen_rect: Rect,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct NewTextPlacement {
     pub page_index: usize,
     pub pt_x: f32,
@@ -80,8 +88,10 @@ pub struct ViewerState {
     pub is_edit_mode: bool,
     pub active_tool: EditTool,
     pub selected_edit: Option<SelectedTextEdit>,
+    pub selected_image: Option<SelectedImageEdit>,
     pub new_text_placement: Option<NewTextPlacement>,
     pub text_blocks_cache: HashMap<(u64, usize), Vec<rustpdf_edit::PageTextBlock>>,
+    pub image_blocks_cache: HashMap<(u64, usize), Vec<rustpdf_edit::PageImageBlock>>,
     texture_cache: HashMap<(u64, usize, u64), TextureHandle>,
 }
 
@@ -110,8 +120,10 @@ impl Default for ViewerState {
             is_edit_mode: false,
             active_tool: EditTool::Select,
             selected_edit: None,
+            selected_image: None,
             new_text_placement: None,
             text_blocks_cache: HashMap::new(),
+            image_blocks_cache: HashMap::new(),
             texture_cache: HashMap::new(),
         }
     }
@@ -549,14 +561,119 @@ impl ViewerComponent {
                 state.text_blocks_cache.insert((doc_id, page_index), blocks);
             }
 
+            // Retrieve or cache image blocks for this page
+            if !state.image_blocks_cache.contains_key(&(doc_id, page_index)) {
+                let img_blocks = session.get_page_image_blocks(page_index);
+                state
+                    .image_blocks_cache
+                    .insert((doc_id, page_index), img_blocks);
+            }
+
             let blocks = state
                 .text_blocks_cache
                 .get(&(doc_id, page_index))
                 .cloned()
                 .unwrap_or_default();
+            let img_blocks = state
+                .image_blocks_cache
+                .get(&(doc_id, page_index))
+                .cloned()
+                .unwrap_or_default();
+
             let mut clicked_block: Option<SelectedTextEdit> = None;
+            let mut clicked_img: Option<SelectedImageEdit> = None;
             let mut apply_replacement: Option<(rustpdf_edit::PageTextBlock, String)> = None;
             let mut delete_text: Option<rustpdf_edit::PageTextBlock> = None;
+
+            // Render interactive image blocks
+            for img_b in &img_blocks {
+                let x0 = rect.min.x + (img_b.rect[0] / page_info.width) * rect.width();
+                let y0 = rect.max.y
+                    - ((img_b.rect[1] + img_b.rect[3]) / page_info.height) * rect.height();
+                let w = (img_b.rect[2] / page_info.width) * rect.width();
+                let h = (img_b.rect[3] / page_info.height) * rect.height();
+
+                let img_screen_rect =
+                    Rect::from_min_size(pos2(x0, y0), vec2(w.max(16.0), h.max(16.0)));
+
+                let is_img_selected = state.selected_image.as_ref().map_or(false, |s| {
+                    s.page_index == page_index && s.block_id == img_b.id
+                });
+                let mouse_pos = ui.input(|i| i.pointer.hover_pos());
+                let is_img_hovered = mouse_pos.map_or(false, |p| img_screen_rect.contains(p));
+
+                if is_img_hovered {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+
+                let img_stroke = if is_img_selected {
+                    Stroke::new(2.5, Color32::from_rgb(147, 51, 234))
+                } else if is_img_hovered {
+                    Stroke::new(1.8, Color32::from_rgb(168, 85, 247))
+                } else {
+                    Stroke::new(1.0, Color32::from_rgba_unmultiplied(147, 51, 234, 180))
+                };
+
+                let img_fill = if is_img_selected {
+                    Color32::from_rgba_unmultiplied(147, 51, 234, 40)
+                } else if is_img_hovered {
+                    Color32::from_rgba_unmultiplied(147, 51, 234, 25)
+                } else {
+                    Color32::from_rgba_unmultiplied(147, 51, 234, 8)
+                };
+
+                ui.painter()
+                    .rect_filled(img_screen_rect, CornerRadius::same(2), img_fill);
+                ui.painter().rect_stroke(
+                    img_screen_rect,
+                    CornerRadius::same(2),
+                    img_stroke,
+                    StrokeKind::Inside,
+                );
+
+                let handle_sz = 4.0;
+                let handle_color = Color32::from_rgb(147, 51, 234);
+                for corner in [
+                    img_screen_rect.left_top(),
+                    img_screen_rect.right_top(),
+                    img_screen_rect.left_bottom(),
+                    img_screen_rect.right_bottom(),
+                ] {
+                    ui.painter().rect_filled(
+                        Rect::from_center_size(corner, vec2(handle_sz, handle_sz)),
+                        CornerRadius::ZERO,
+                        handle_color,
+                    );
+                }
+
+                if is_img_hovered || is_img_selected {
+                    let badge_rect = Rect::from_min_size(
+                        img_screen_rect.left_top() + vec2(2.0, 2.0),
+                        vec2(76.0, 18.0),
+                    );
+                    ui.painter().rect_filled(
+                        badge_rect,
+                        CornerRadius::same(3),
+                        Color32::from_rgba_unmultiplied(20, 20, 25, 220),
+                    );
+                    ui.painter().text(
+                        badge_rect.center(),
+                        Align2::CENTER_CENTER,
+                        format!("🖼 {}x{}", img_b.pixel_width, img_b.pixel_height),
+                        egui::FontId::proportional(10.0),
+                        Color32::from_rgb(220, 220, 240),
+                    );
+                }
+
+                if is_img_hovered && ui.input(|i| i.pointer.primary_clicked()) {
+                    clicked_img = Some(SelectedImageEdit {
+                        page_index,
+                        block_id: img_b.id,
+                        target_block: img_b.clone(),
+                        screen_rect: img_screen_rect,
+                    });
+                }
+            }
 
             for block in &blocks {
                 // Map PDF points (bottom-left origin) to screen viewport pixels
@@ -634,6 +751,12 @@ impl ViewerComponent {
 
             if let Some(sel) = clicked_block {
                 state.selected_edit = Some(sel);
+                state.selected_image = None;
+            }
+
+            if let Some(sel_img) = clicked_img {
+                state.selected_image = Some(sel_img);
+                state.selected_edit = None;
             }
 
             // =====================================================================
@@ -733,25 +856,142 @@ impl ViewerComponent {
                 }
             }
 
+            // =====================================================================
+            // IN-PLACE FLOATING IMAGE ACTION TOOLBAR (OVER SELECTED IMAGE BLOCK)
+            // =====================================================================
+            if let Some(ref selected_img) = state.selected_image {
+                if selected_img.page_index == page_index {
+                    let mut do_replace = false;
+                    let mut do_delete = false;
+                    let mut close_image_edit = false;
+
+                    let target_img_block = selected_img.target_block.clone();
+                    let s_rect = selected_img.screen_rect;
+
+                    let toolbar_pos = if s_rect.min.y > 60.0 {
+                        pos2(s_rect.min.x, s_rect.min.y - 38.0)
+                    } else {
+                        pos2(s_rect.min.x, s_rect.max.y + 8.0)
+                    };
+
+                    egui::Area::new(Id::new(format!(
+                        "inline_image_actions_{}_{}",
+                        page_index, selected_img.block_id
+                    )))
+                    .order(Order::Foreground)
+                    .fixed_pos(toolbar_pos)
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style())
+                            .fill(Color32::from_rgb(25, 27, 34))
+                            .stroke(Stroke::new(1.5, Color32::from_rgb(147, 51, 234)))
+                            .corner_radius(CornerRadius::same(6))
+                            .inner_margin(egui::Margin::symmetric(8, 5))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new("🖼 Image")
+                                            .strong()
+                                            .color(Color32::from_rgb(216, 180, 254)),
+                                    );
+                                    ui.separator();
+
+                                    if ui
+                                        .button(
+                                            egui::RichText::new("🔄 Replace Image...")
+                                                .strong()
+                                                .color(Color32::from_rgb(56, 189, 248)),
+                                        )
+                                        .on_hover_text(
+                                            "Select a replacement image (PNG, JPG, WebP) from your computer",
+                                        )
+                                        .clicked()
+                                    {
+                                        do_replace = true;
+                                    }
+
+                                    if ui
+                                        .button(
+                                            egui::RichText::new("🗑 Delete")
+                                                .color(Color32::from_rgb(248, 113, 113)),
+                                        )
+                                        .on_hover_text("Remove this image from the page")
+                                        .clicked()
+                                    {
+                                        do_delete = true;
+                                    }
+
+                                    if ui.button("✕").clicked() {
+                                        close_image_edit = true;
+                                    }
+                                });
+                            });
+                    });
+
+                    if ui.input(|i| {
+                        i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)
+                    }) {
+                        do_delete = true;
+                    }
+
+                    if close_image_edit {
+                        state.selected_image = None;
+                    }
+
+                    if do_replace {
+                        if let Some(img_path) = rfd::FileDialog::new()
+                            .add_filter("Image", &["png", "jpg", "jpeg", "webp"])
+                            .pick_file()
+                        {
+                            if let Ok(bytes) = std::fs::read(&img_path) {
+                                let _ = session.replace_image_block(
+                                    page_index,
+                                    &target_img_block,
+                                    &bytes,
+                                );
+                                state.invalidate_page_texture(doc_id, page_index);
+                                state.image_blocks_cache.retain(|&(d, _), _| d != doc_id);
+                                state.selected_image = None;
+                            }
+                        }
+                    }
+
+                    if do_delete {
+                        let _ = session.delete_image_block(page_index, &target_img_block);
+                        state.invalidate_page_texture(doc_id, page_index);
+                        state.image_blocks_cache.retain(|&(d, _), _| d != doc_id);
+                        state.selected_image = None;
+                    }
+                }
+            }
+
             // Commit In-Place Replacements or Deletions
             if let Some((target_block, repl)) = apply_replacement {
                 if target_block.text != repl {
                     let _ = session.replace_text_block(page_index, &target_block, &repl);
                     state.invalidate_page_texture(doc_id, page_index);
                     state.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
+                    state.image_blocks_cache.retain(|&(d, _), _| d != doc_id);
                 }
             }
             if let Some(target_block) = delete_text {
                 let _ = session.replace_text_block(page_index, &target_block, "");
                 state.invalidate_page_texture(doc_id, page_index);
                 state.text_blocks_cache.retain(|&(d, _), _| d != doc_id);
+                state.image_blocks_cache.retain(|&(d, _), _| d != doc_id);
             }
+
+            // Reliable pointer position resolution across release events
+            let click_pos = resp
+                .interact_pointer_pos()
+                .or_else(|| ui.input(|i| i.pointer.hover_pos()))
+                .or_else(|| ui.input(|i| i.pointer.interact_pos()))
+                .or_else(|| resp.hover_pos());
 
             // =====================================================================
             // TOOL: ADD NEW TEXT BOX BY CLICKING ANYWHERE ON THE PAGE
             // =====================================================================
             if state.active_tool == EditTool::AddText && resp.clicked() {
-                if let Some(pointer_pos) = resp.interact_pointer_pos() {
+                if let Some(pointer_pos) = click_pos {
                     let pt_x = ((pointer_pos.x - rect.min.x) / rect.width()) * page_info.width;
                     let pt_y = ((rect.max.y - pointer_pos.y) / rect.height()) * page_info.height;
 
@@ -769,7 +1009,7 @@ impl ViewerComponent {
             // TOOL: ADD IMAGE BY CLICKING ON PAGE
             // =====================================================================
             if state.active_tool == EditTool::AddImage && resp.clicked() {
-                if let Some(pointer_pos) = resp.interact_pointer_pos() {
+                if let Some(pointer_pos) = click_pos {
                     let pt_x = ((pointer_pos.x - rect.min.x) / rect.width()) * page_info.width;
                     let pt_y = ((rect.max.y - pointer_pos.y) / rect.height()) * page_info.height;
 
@@ -778,9 +1018,30 @@ impl ViewerComponent {
                         .pick_file()
                     {
                         if let Ok(bytes) = std::fs::read(&img_path) {
-                            let _ = session
-                                .insert_image_to_page(page_index, &bytes, pt_x, pt_y, 160.0, 120.0);
+                            let (insert_w, insert_h) =
+                                if let Ok(dyn_img) = image::load_from_memory(&bytes) {
+                                    let w = dyn_img.width() as f32;
+                                    let h = dyn_img.height() as f32;
+                                    let aspect = (w / h.max(1.0)).clamp(0.1, 10.0);
+                                    if aspect >= 1.0 {
+                                        (200.0, 200.0 / aspect)
+                                    } else {
+                                        (180.0 * aspect, 180.0)
+                                    }
+                                } else {
+                                    (160.0, 120.0)
+                                };
+
+                            let insert_x = (pt_x - insert_w / 2.0)
+                                .clamp(0.0, (page_info.width - insert_w).max(0.0));
+                            let insert_y = (pt_y - insert_h / 2.0)
+                                .clamp(0.0, (page_info.height - insert_h).max(0.0));
+
+                            let _ = session.insert_image_to_page(
+                                page_index, &bytes, insert_x, insert_y, insert_w, insert_h,
+                            );
                             state.invalidate_page_texture(doc_id, page_index);
+                            state.image_blocks_cache.retain(|&(d, _), _| d != doc_id);
                             state.active_tool = EditTool::Select;
                         }
                     }
@@ -792,7 +1053,7 @@ impl ViewerComponent {
             // =====================================================================
             if let EditTool::Stamp(stamp_kind) = state.active_tool {
                 if resp.clicked() {
-                    if let Some(pointer_pos) = resp.interact_pointer_pos() {
+                    if let Some(pointer_pos) = click_pos {
                         let pt_x = ((pointer_pos.x - rect.min.x) / rect.width()) * page_info.width;
                         let pt_y =
                             ((rect.max.y - pointer_pos.y) / rect.height()) * page_info.height;

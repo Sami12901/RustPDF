@@ -1195,6 +1195,407 @@ pub fn replace_text_block_overlay(
     append_page_content(doc, page_id, stream_str.into_bytes())
 }
 
+/// Represents an embedded image block on a page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PageImageBlock {
+    pub id: usize,
+    pub content_id: Option<ObjectId>,
+    pub op_index: usize,
+    pub name: String,
+    pub xobject_id: ObjectId,
+    /// Bounding rectangle in page points: [x, y, width, height] where y is from bottom in PDF points
+    pub rect: [f32; 4],
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Matrix2D {
+    a: f32,
+    b: f32,
+    c: f32,
+    d: f32,
+    e: f32,
+    f: f32,
+}
+
+impl Matrix2D {
+    fn identity() -> Self {
+        Self {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            e: 0.0,
+            f: 0.0,
+        }
+    }
+
+    /// Multiplies m_new * ctm_old according to PDF specification section 8.3.3: CTM' = M * CTM
+    fn multiply(&self, ctm: &Matrix2D) -> Matrix2D {
+        Matrix2D {
+            a: self.a * ctm.a + self.b * ctm.c,
+            b: self.a * ctm.b + self.b * ctm.d,
+            c: self.c * ctm.a + self.d * ctm.c,
+            d: self.c * ctm.b + self.d * ctm.d,
+            e: self.e * ctm.a + self.f * ctm.c + ctm.e,
+            f: self.e * ctm.b + self.f * ctm.d + ctm.f,
+        }
+    }
+
+    fn transform(&self, x: f32, y: f32) -> (f32, f32) {
+        (
+            self.a * x + self.c * y + self.e,
+            self.b * x + self.d * y + self.f,
+        )
+    }
+}
+
+/// Helper extracting `/Resources /XObject` dictionaries for a page, walking up `/Parent` if inherited.
+fn get_page_image_xobjects(
+    doc: &LopdfDoc,
+    page_id: ObjectId,
+) -> HashMap<Vec<u8>, (ObjectId, u32, u32)> {
+    let mut images = HashMap::new();
+    let mut current_id = page_id;
+    let mut res_dict: Option<&Dictionary> = None;
+
+    for _ in 0..10 {
+        if let Ok(dict) = doc.get_object(current_id).and_then(Object::as_dict) {
+            if let Ok(res_ref) = dict.get(b"Resources").and_then(Object::as_reference) {
+                if let Ok(r) = doc.get_object(res_ref).and_then(Object::as_dict) {
+                    res_dict = Some(r);
+                    break;
+                }
+            } else if let Ok(r) = dict.get(b"Resources").and_then(Object::as_dict) {
+                res_dict = Some(r);
+                break;
+            }
+            if let Ok(parent_id) = dict.get(b"Parent").and_then(Object::as_reference) {
+                current_id = parent_id;
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+
+    let Some(res_dict) = res_dict else {
+        return images;
+    };
+
+    let xobjs_dict = if let Ok(xobjs_ref) = res_dict.get(b"XObject").and_then(Object::as_reference)
+    {
+        doc.get_object(xobjs_ref).and_then(Object::as_dict).ok()
+    } else {
+        res_dict.get(b"XObject").and_then(Object::as_dict).ok()
+    };
+
+    let Some(xobjs_dict) = xobjs_dict else {
+        return images;
+    };
+
+    for (name_key, val_obj) in xobjs_dict.iter() {
+        let xobj_id = match val_obj {
+            Object::Reference(id) => *id,
+            _ => continue,
+        };
+        if let Ok(Object::Stream(stream)) = doc.get_object(xobj_id) {
+            let subtype = stream
+                .dict
+                .get(b"Subtype")
+                .and_then(Object::as_name)
+                .unwrap_or(b"");
+            if subtype == b"Image" {
+                let w = stream
+                    .dict
+                    .get(b"Width")
+                    .and_then(Object::as_i64)
+                    .unwrap_or(0) as u32;
+                let h = stream
+                    .dict
+                    .get(b"Height")
+                    .and_then(Object::as_i64)
+                    .unwrap_or(0) as u32;
+                images.insert(name_key.clone(), (xobj_id, w, h));
+            }
+        }
+    }
+
+    images
+}
+
+/// Extracts all image blocks with bounding box coordinates from a page's content streams and resources.
+pub fn extract_page_image_blocks(doc: &LopdfDoc, page_index: usize) -> Vec<PageImageBlock> {
+    let mut image_blocks = Vec::new();
+    let page_map = doc.get_pages();
+    let page_num = (page_index + 1) as u32;
+    let Some(&page_id) = page_map.get(&page_num) else {
+        return image_blocks;
+    };
+
+    let image_xobjects = get_page_image_xobjects(doc, page_id);
+    if image_xobjects.is_empty() {
+        return image_blocks;
+    }
+
+    let content_ids: Vec<ObjectId> = {
+        let Ok(page) = doc.get_object(page_id).and_then(Object::as_dict) else {
+            return image_blocks;
+        };
+        match page.get(b"Contents") {
+            Ok(Object::Reference(id)) => vec![*id],
+            Ok(Object::Array(arr)) => arr.iter().filter_map(|o| o.as_reference().ok()).collect(),
+            _ => Vec::new(),
+        }
+    };
+
+    let mut next_id = 0;
+
+    for cid in content_ids {
+        if let Ok(Object::Stream(stream)) = doc.get_object(cid) {
+            let data = stream
+                .decompressed_content()
+                .unwrap_or_else(|_| stream.content.clone());
+            if let Ok(content) = lopdf::content::Content::decode(&data) {
+                let mut ctm_stack: Vec<Matrix2D> = Vec::new();
+                let mut ctm = Matrix2D::identity();
+
+                for (op_idx, op) in content.operations.iter().enumerate() {
+                    match op.operator.as_str() {
+                        "q" => {
+                            ctm_stack.push(ctm);
+                        }
+                        "Q" => {
+                            if let Some(prev) = ctm_stack.pop() {
+                                ctm = prev;
+                            }
+                        }
+                        "cm" => {
+                            if op.operands.len() >= 6 {
+                                let a = get_f32_from_obj(&op.operands[0]).unwrap_or(1.0);
+                                let b = get_f32_from_obj(&op.operands[1]).unwrap_or(0.0);
+                                let c = get_f32_from_obj(&op.operands[2]).unwrap_or(0.0);
+                                let d = get_f32_from_obj(&op.operands[3]).unwrap_or(1.0);
+                                let e = get_f32_from_obj(&op.operands[4]).unwrap_or(0.0);
+                                let f = get_f32_from_obj(&op.operands[5]).unwrap_or(0.0);
+                                let m = Matrix2D { a, b, c, d, e, f };
+                                ctm = m.multiply(&ctm);
+                            }
+                        }
+                        "Do" => {
+                            if let Some(name_obj) = op.operands.first() {
+                                let name_bytes = match name_obj {
+                                    Object::Name(bytes) => bytes.as_slice(),
+                                    Object::String(bytes, _) => bytes.as_slice(),
+                                    _ => &[],
+                                };
+                                if let Some(&(xobj_id, pixel_w, pixel_h)) =
+                                    image_xobjects.get(name_bytes)
+                                {
+                                    let p0 = ctm.transform(0.0, 0.0);
+                                    let p1 = ctm.transform(1.0, 0.0);
+                                    let p2 = ctm.transform(1.0, 1.0);
+                                    let p3 = ctm.transform(0.0, 1.0);
+
+                                    let min_x = p0.0.min(p1.0).min(p2.0).min(p3.0);
+                                    let max_x = p0.0.max(p1.0).max(p2.0).max(p3.0);
+                                    let min_y = p0.1.min(p1.1).min(p2.1).min(p3.1);
+                                    let max_y = p0.1.max(p1.1).max(p2.1).max(p3.1);
+                                    let width = (max_x - min_x).max(1.0);
+                                    let height = (max_y - min_y).max(1.0);
+
+                                    image_blocks.push(PageImageBlock {
+                                        id: next_id,
+                                        content_id: Some(cid),
+                                        op_index: op_idx,
+                                        name: String::from_utf8_lossy(name_bytes).to_string(),
+                                        xobject_id: xobj_id,
+                                        rect: [min_x, min_y, width, height],
+                                        pixel_width: pixel_w,
+                                        pixel_height: pixel_h,
+                                    });
+                                    next_id += 1;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback for scanned / single-image pages without explicit Do operator in Content stream:
+    if image_blocks.is_empty() {
+        let (pw, ph) = get_page_dimensions(doc, page_id);
+        for (name_bytes, &(xobj_id, pixel_w, pixel_h)) in &image_xobjects {
+            image_blocks.push(PageImageBlock {
+                id: next_id,
+                content_id: None,
+                op_index: 0,
+                name: String::from_utf8_lossy(name_bytes).to_string(),
+                xobject_id: xobj_id,
+                rect: [0.0, 0.0, pw, ph],
+                pixel_width: pixel_w,
+                pixel_height: pixel_h,
+            });
+            next_id += 1;
+        }
+    }
+
+    image_blocks
+}
+
+/// Replaces an existing image block on a page with new image data in-place, updating XObject stream and SMask.
+pub fn replace_page_image(
+    doc: &mut LopdfDoc,
+    _page_index: usize,
+    block: &PageImageBlock,
+    new_image_bytes: &[u8],
+) -> Result<(), EditError> {
+    let img = image::load_from_memory(new_image_bytes)
+        .map_err(|e| EditError::ImageError(e.to_string()))?;
+    let (w, h) = (img.width(), img.height());
+    if (w as u64) * (h as u64) > 64_000_000 {
+        return Err(EditError::ImageError(
+            "image dimensions exceed 64 megapixel security limit".to_string(),
+        ));
+    }
+
+    let rgba = img.to_rgba8();
+    let mut rgb_data = Vec::with_capacity((w * h * 3) as usize);
+    let mut alpha_data = Vec::with_capacity((w * h) as usize);
+    let mut has_transparency = false;
+
+    for pixel in rgba.pixels() {
+        rgb_data.push(pixel[0]);
+        rgb_data.push(pixel[1]);
+        rgb_data.push(pixel[2]);
+        let a = pixel[3];
+        alpha_data.push(a);
+        if a < 255 {
+            has_transparency = true;
+        }
+    }
+
+    let existing_smask_ref =
+        if let Ok(Object::Stream(existing_stream)) = doc.get_object(block.xobject_id) {
+            existing_stream
+                .dict
+                .get(b"SMask")
+                .and_then(Object::as_reference)
+                .ok()
+        } else {
+            None
+        };
+
+    let smask_id_opt = if has_transparency {
+        let mut smask_dict = Dictionary::new();
+        smask_dict.set(b"Type", Object::Name(b"XObject".to_vec()));
+        smask_dict.set(b"Subtype", Object::Name(b"Image".to_vec()));
+        smask_dict.set(b"Width", Object::Integer(w as i64));
+        smask_dict.set(b"Height", Object::Integer(h as i64));
+        smask_dict.set(b"ColorSpace", Object::Name(b"DeviceGray".to_vec()));
+        smask_dict.set(b"BitsPerComponent", Object::Integer(8));
+
+        let mut smask_stream = Stream::new(smask_dict, alpha_data);
+        let _ = smask_stream.compress();
+
+        if let Some(smask_ref) = existing_smask_ref {
+            *doc.get_object_mut(smask_ref).map_err(EditError::Lopdf)? =
+                Object::Stream(smask_stream);
+            Some(smask_ref)
+        } else {
+            let smask_id = doc.add_object(smask_stream);
+            Some(smask_id)
+        }
+    } else {
+        None
+    };
+
+    let mut img_dict = Dictionary::new();
+    img_dict.set(b"Type", Object::Name(b"XObject".to_vec()));
+    img_dict.set(b"Subtype", Object::Name(b"Image".to_vec()));
+    img_dict.set(b"Width", Object::Integer(w as i64));
+    img_dict.set(b"Height", Object::Integer(h as i64));
+    img_dict.set(b"ColorSpace", Object::Name(b"DeviceRGB".to_vec()));
+    img_dict.set(b"BitsPerComponent", Object::Integer(8));
+
+    if let Some(smask_id) = smask_id_opt {
+        img_dict.set(b"SMask", Object::Reference(smask_id));
+    }
+
+    let mut new_stream = Stream::new(img_dict, rgb_data);
+    let _ = new_stream.compress();
+
+    *doc.get_object_mut(block.xobject_id)
+        .map_err(EditError::Lopdf)? = Object::Stream(new_stream);
+
+    Ok(())
+}
+
+/// Deletes an image block from a page by removing the `Do` operator from the content stream or masking.
+pub fn delete_page_image(
+    doc: &mut LopdfDoc,
+    page_index: usize,
+    block: &PageImageBlock,
+) -> Result<(), EditError> {
+    let page_map = doc.get_pages();
+    let page_num = (page_index + 1) as u32;
+    let &page_id = page_map
+        .get(&page_num)
+        .ok_or(EditError::PageOutOfBounds(page_index))?;
+
+    let mut removed_from_stream = false;
+
+    if let Some(cid) = block.content_id {
+        if let Ok(Object::Stream(ref mut stream)) = doc.get_object_mut(cid) {
+            let data = stream
+                .decompressed_content()
+                .unwrap_or_else(|_| stream.content.clone());
+            if let Ok(mut content) = lopdf::content::Content::decode(&data) {
+                if block.op_index < content.operations.len() {
+                    let op = &content.operations[block.op_index];
+                    if op.operator == "Do" {
+                        content.operations.remove(block.op_index);
+                        if let Ok(encoded) = content.encode() {
+                            stream.set_plain_content(encoded);
+                            stream.dict.remove(b"Filter");
+                            removed_from_stream = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Also remove alias from page resources XObject dictionary if present
+    if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
+        if let Ok(res_dict) = page_dict
+            .get_mut(b"Resources")
+            .and_then(Object::as_dict_mut)
+        {
+            if let Ok(xobjs) = res_dict.get_mut(b"XObject").and_then(Object::as_dict_mut) {
+                xobjs.remove(block.name.as_bytes());
+            }
+        }
+    }
+
+    if !removed_from_stream {
+        // Fallback: draw white mask rectangle over the image's bounding box
+        let [x, y, w, h] = block.rect;
+        let stream_str = format!(
+            "q\n1 1 1 rg\n{:.2} {:.2} {:.2} {:.2} re\nf\nQ\n",
+            x, y, w, h
+        );
+        append_page_content(doc, page_id, stream_str.into_bytes())?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1384,5 +1785,58 @@ mod tests {
         );
         assert_eq!(blocks[0].text, "Power Supply");
         assert_eq!(blocks[0].op_indices.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_replace_delete_image_block() {
+        let (mut doc, _) = create_test_page_doc(b"");
+
+        // 1. Insert a 2x2 image onto page 0
+        let mut img_buf = image::RgbaImage::new(2, 2);
+        img_buf.put_pixel(0, 0, image::Rgba([255, 0, 0, 255]));
+        img_buf.put_pixel(1, 1, image::Rgba([0, 255, 0, 255]));
+        let mut png_bytes = Vec::new();
+        img_buf
+            .write_to(
+                &mut std::io::Cursor::new(&mut png_bytes),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+
+        insert_image_to_page(&mut doc, 0, &png_bytes, 40.0, 60.0, 120.0, 90.0).unwrap();
+
+        // 2. Extract image blocks and verify
+        let blocks = extract_page_image_blocks(&doc, 0);
+        assert_eq!(blocks.len(), 1, "Expected 1 image block extracted");
+        let b = &blocks[0];
+        assert_eq!(b.pixel_width, 2);
+        assert_eq!(b.pixel_height, 2);
+        assert!((b.rect[0] - 40.0).abs() < 1e-2);
+        assert!((b.rect[1] - 60.0).abs() < 1e-2);
+        assert!((b.rect[2] - 120.0).abs() < 1e-2);
+        assert!((b.rect[3] - 90.0).abs() < 1e-2);
+
+        // 3. Replace image block with a 4x4 image
+        let mut img_buf2 = image::RgbaImage::new(4, 4);
+        img_buf2.put_pixel(0, 0, image::Rgba([0, 0, 255, 255]));
+        let mut png_bytes2 = Vec::new();
+        img_buf2
+            .write_to(
+                &mut std::io::Cursor::new(&mut png_bytes2),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+
+        replace_page_image(&mut doc, 0, b, &png_bytes2).unwrap();
+
+        let updated_blocks = extract_page_image_blocks(&doc, 0);
+        assert_eq!(updated_blocks.len(), 1);
+        assert_eq!(updated_blocks[0].pixel_width, 4);
+        assert_eq!(updated_blocks[0].pixel_height, 4);
+
+        // 4. Delete the image block
+        delete_page_image(&mut doc, 0, &updated_blocks[0]).unwrap();
+        let remaining_blocks = extract_page_image_blocks(&doc, 0);
+        assert_eq!(remaining_blocks.len(), 0, "Image block should be removed");
     }
 }

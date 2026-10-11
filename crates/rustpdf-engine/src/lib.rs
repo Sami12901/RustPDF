@@ -480,6 +480,39 @@ impl DocumentSession {
         rustpdf_edit::extract_page_text_blocks(self.cos_doc.inner(), page_index)
     }
 
+    /// Extracts image blocks with bounding box coordinates for interactive in-page editing and replacement.
+    pub fn get_page_image_blocks(&self, page_index: usize) -> Vec<rustpdf_edit::PageImageBlock> {
+        rustpdf_edit::extract_page_image_blocks(self.cos_doc.inner(), page_index)
+    }
+
+    /// Replaces an existing image block on a page with new image data, preserving position and scaling.
+    pub fn replace_image_block(
+        &mut self,
+        page_index: usize,
+        block: &rustpdf_edit::PageImageBlock,
+        new_image_bytes: &[u8],
+    ) -> Result<(), EngineError> {
+        let old_bytes = (*self.raw_bytes).clone();
+        rustpdf_edit::replace_page_image(
+            self.cos_doc.inner_mut(),
+            page_index,
+            block,
+            new_image_bytes,
+        )?;
+        self.commit_in_memory_change(&format!("Replace image '{}'", block.name), old_bytes)
+    }
+
+    /// Deletes an image block from a page and commits to undo history.
+    pub fn delete_image_block(
+        &mut self,
+        page_index: usize,
+        block: &rustpdf_edit::PageImageBlock,
+    ) -> Result<(), EngineError> {
+        let old_bytes = (*self.raw_bytes).clone();
+        rustpdf_edit::delete_page_image(self.cos_doc.inner_mut(), page_index, block)?;
+        self.commit_in_memory_change(&format!("Delete image '{}'", block.name), old_bytes)
+    }
+
     /// Compresses uncompressed streams, prunes orphan objects, and records in undo history.
     pub fn compress_document(&mut self) -> Result<rustpdf_edit::CompressionResult, EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
