@@ -129,6 +129,23 @@ impl DocumentSession {
         self.commit_in_memory_change("Duplicate page", old_bytes)
     }
 
+    /// Moves a page from one index to another (0-indexed) with undo/redo history.
+    pub fn move_page(&mut self, from: usize, to: usize) -> Result<(), EngineError> {
+        if from == to {
+            return Ok(());
+        }
+        let old_bytes = (*self.raw_bytes).clone();
+        rustpdf_organize::move_page(self.cos_doc.inner_mut(), from, to)?;
+        self.commit_in_memory_change(&format!("Move page {} to {}", from + 1, to + 1), old_bytes)
+    }
+
+    /// Reorders pages according to the specified index order with undo/redo history.
+    pub fn reorder_pages(&mut self, new_order: &[usize]) -> Result<(), EngineError> {
+        let old_bytes = (*self.raw_bytes).clone();
+        rustpdf_organize::reorder_pages(self.cos_doc.inner_mut(), new_order)?;
+        self.commit_in_memory_change("Reorder pages", old_bytes)
+    }
+
     /// Undoes the last modification.
     pub fn undo(&mut self) -> Result<bool, EngineError> {
         if let Some(restored_bytes) = self.history.undo() {

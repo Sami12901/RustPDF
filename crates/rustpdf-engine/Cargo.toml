@@ -18,3 +18,11 @@ rustpdf-export = { workspace = true }
 rustpdf-fonts = { workspace = true }
 thiserror = { workspace = true }
 lopdf = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[test]]
+name = "integration_tests"
+path = "../../tests/integration_tests.rs"
+

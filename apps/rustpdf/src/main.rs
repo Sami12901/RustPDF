@@ -13,6 +13,8 @@ fn main() -> eframe::Result<()> {
         viewport = viewport.with_icon(Arc::new(icon));
     }
 
+    let initial_file = std::env::args().nth(1).map(std::path::PathBuf::from);
+
     let options = eframe::NativeOptions {
         viewport,
         ..Default::default()
@@ -21,6 +23,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "RustPdf — PDF Workbench",
         options,
-        Box::new(|cc| Ok(Box::new(RustPdfApp::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(RustPdfApp::new_with_initial_file(cc, initial_file)))),
     )
 }

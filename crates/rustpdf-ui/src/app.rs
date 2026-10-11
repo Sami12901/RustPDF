@@ -15,7 +15,7 @@ use crate::organizer::{OrganizerAction, OrganizerComponent, OrganizerState};
 use crate::search::{SearchBarComponent, SearchState};
 use crate::theme::AppTheme;
 use crate::thumbnails::ThumbnailConfig;
-use crate::viewer::{ViewMode, ViewerComponent, ViewerState};
+use crate::viewer::{EditTool, StampKind, ViewMode, ViewerComponent, ViewerState};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActiveWorkspace {
@@ -53,6 +53,19 @@ pub struct RustPdfApp {
 }
 
 impl RustPdfApp {
+    pub fn new_with_initial_file(
+        cc: &eframe::CreationContext<'_>,
+        initial_file: Option<std::path::PathBuf>,
+    ) -> Self {
+        let mut app = Self::new(cc);
+        if let Some(path) = initial_file {
+            if path.exists() {
+                app.open_file(path);
+            }
+        }
+        app
+    }
+
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let theme = AppTheme::load_persisted();
         theme.apply_to_egui(&cc.egui_ctx);
@@ -290,6 +303,76 @@ impl RustPdfApp {
                 || i.consume_key(Modifiers::CTRL, Key::Minus)
         }) {
             self.viewer_state.zoom_out();
+        }
+
+        // Ctrl+0 / Ctrl+1: Fit Page / 100% Zoom
+        if ctx.input_mut(|i| {
+            i.consume_key(Modifiers::COMMAND, Key::Num0)
+                || i.consume_key(Modifiers::CTRL, Key::Num0)
+                || i.consume_key(Modifiers::COMMAND, Key::Num1)
+                || i.consume_key(Modifiers::CTRL, Key::Num1)
+        }) {
+            self.viewer_state.set_zoom(1.0);
+        }
+
+        // Ctrl+2: Fit Width
+        if ctx.input_mut(|i| {
+            i.consume_key(Modifiers::COMMAND, Key::Num2)
+                || i.consume_key(Modifiers::CTRL, Key::Num2)
+        }) {
+            if let Some(s) = self.active_session() {
+                if let Some(p) = s.model.pages.get(self.viewer_state.current_page) {
+                    self.viewer_state.fit_width(850.0, p.width);
+                }
+            }
+        }
+
+        // Ctrl+W: Close active tab
+        if ctx.input_mut(|i| {
+            i.consume_key(Modifiers::COMMAND, Key::W) || i.consume_key(Modifiers::CTRL, Key::W)
+        }) {
+            if let Some(cur) = self.active_tab {
+                self.close_tab(cur);
+            }
+        }
+
+        // Ctrl+Tab / Ctrl+Shift+Tab: Switch active tabs
+        let (cycle_forward, cycle_backward) = ctx.input_mut(|i| {
+            let ctrl = i.modifiers.ctrl || i.modifiers.command;
+            let fwd = ctrl && !i.modifiers.shift && i.consume_key(Modifiers::NONE, Key::Tab);
+            let bwd = ctrl && i.modifiers.shift && i.consume_key(Modifiers::NONE, Key::Tab);
+            (fwd, bwd)
+        });
+        if !self.sessions.is_empty() {
+            if cycle_forward {
+                let next = self.active_tab.map_or(0, |curr| (curr + 1) % self.sessions.len());
+                self.active_tab = Some(next);
+                self.active_workspace = ActiveWorkspace::Viewer;
+            } else if cycle_backward {
+                let prev = self.active_tab.map_or(0, |curr| {
+                    if curr == 0 {
+                        self.sessions.len() - 1
+                    } else {
+                        curr - 1
+                    }
+                });
+                self.active_tab = Some(prev);
+                self.active_workspace = ActiveWorkspace::Viewer;
+            }
+        }
+
+        // PageDown / PageUp: Navigate pages in viewer
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::PageDown)) {
+            if let Some(s) = self.active_session() {
+                if self.viewer_state.current_page + 1 < s.page_count() {
+                    self.viewer_state.current_page += 1;
+                }
+            }
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::PageUp)) {
+            if self.viewer_state.current_page > 0 {
+                self.viewer_state.current_page -= 1;
+            }
         }
     }
 }
@@ -654,7 +737,7 @@ impl App for RustPdfApp {
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(
-                        RichText::new("RustPdf v0.3.0")
+                        RichText::new("RustPdf v0.4.0")
                             .size(11.0)
                             .color(Color32::from_gray(130)),
                     );
@@ -751,193 +834,205 @@ impl App for RustPdfApp {
                                 self.active_workspace = ActiveWorkspace::Viewer;
                             }
                             crate::tools_panel::ToolAction::Watermark => {
+                                self.modals_state.target_page = self.viewer_state.current_page + 1;
                                 self.modals_state.edit_content_tab =
                                     crate::modals::EditContentTab::Watermark;
                                 self.modals_state.show_edit_content_dialog = true;
                             }
                             crate::tools_panel::ToolAction::Link => {
+                                self.modals_state.target_page = self.viewer_state.current_page + 1;
                                 self.modals_state.edit_content_tab =
                                     crate::modals::EditContentTab::Link;
                                 self.modals_state.show_edit_content_dialog = true;
                             }
                             crate::tools_panel::ToolAction::HeaderAndFooter => {
+                                self.modals_state.target_page = self.viewer_state.current_page + 1;
                                 self.modals_state.edit_content_tab =
                                     crate::modals::EditContentTab::HeaderFooter;
                                 self.modals_state.show_edit_content_dialog = true;
                             }
                             crate::tools_panel::ToolAction::BatesNumbering => {
+                                self.modals_state.target_page = self.viewer_state.current_page + 1;
                                 self.modals_state.edit_content_tab =
                                     crate::modals::EditContentTab::Bates;
                                 self.modals_state.show_edit_content_dialog = true;
                             }
                             crate::tools_panel::ToolAction::Background => {
+                                self.modals_state.target_page = self.viewer_state.current_page + 1;
                                 self.modals_state.edit_content_tab =
                                     crate::modals::EditContentTab::Background;
                                 self.modals_state.show_edit_content_dialog = true;
                             }
-                            crate::tools_panel::ToolAction::ExportWord
-                            | crate::tools_panel::ToolAction::ExportRtf
-                            | crate::tools_panel::ToolAction::ExportTextPlain
-                            | crate::tools_panel::ToolAction::ExportHtml => {
-                                let page_num = (self.viewer_state.current_page + 1) as u32;
+                            crate::tools_panel::ToolAction::ExportWord => {
                                 if let Some(s) = self.active_session() {
-                                    if let Some(path) = rfd::FileDialog::new().save_file() {
-                                        let text = s
-                                            .cos_doc
-                                            .inner()
-                                            .extract_text(&[page_num])
-                                            .unwrap_or_default();
-                                        let _ = std::fs::write(path, text);
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("Word Document", &["doc", "docx", "rtf"])
+                                        .set_file_name(&format!("{}.doc", s.display_name.trim_end_matches(".pdf")))
+                                        .save_file()
+                                    {
+                                        let doc = rustpdf_export::export_word_doc(s.cos_doc.inner(), &s.display_name);
+                                        match std::fs::write(&path, doc) {
+                                            Ok(()) => self.notify_success(format!("Exported Word document: {}", path.display())),
+                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        }
                                     }
                                 }
                             }
-                            crate::tools_panel::ToolAction::ExportSpreadsheet
-                            | crate::tools_panel::ToolAction::ExportPresentation
-                            | crate::tools_panel::ToolAction::ExportPostScript => {}
-                            crate::tools_panel::ToolAction::ExportImagePng
-                            | crate::tools_panel::ToolAction::ExportAllImages => {
-                                if let Some(s) = self.active_session_mut() {
+                            crate::tools_panel::ToolAction::ExportRtf => {
+                                if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("PNG Image", &["png"])
+                                        .add_filter("Rich Text Format", &["rtf"])
+                                        .set_file_name(&format!("{}.rtf", s.display_name.trim_end_matches(".pdf")))
                                         .save_file()
                                     {
-                                        let _ = s.save_to(&path);
+                                        let rtf = rustpdf_export::export_rtf_doc(s.cos_doc.inner(), &s.display_name);
+                                        match std::fs::write(&path, rtf) {
+                                            Ok(()) => self.notify_success(format!("Exported RTF: {}", path.display())),
+                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        }
+                                    }
+                                }
+                            }
+                            crate::tools_panel::ToolAction::ExportHtml => {
+                                if let Some(s) = self.active_session() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("HTML Web Page", &["html", "htm"])
+                                        .set_file_name(&format!("{}.html", s.display_name.trim_end_matches(".pdf")))
+                                        .save_file()
+                                    {
+                                        let html = rustpdf_export::export_html_doc(s.cos_doc.inner(), &s.display_name);
+                                        match std::fs::write(&path, html) {
+                                            Ok(()) => self.notify_success(format!("Exported HTML: {}", path.display())),
+                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        }
+                                    }
+                                }
+                            }
+                            crate::tools_panel::ToolAction::ExportTextPlain => {
+                                if let Some(s) = self.active_session() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("Plain Text", &["txt"])
+                                        .set_file_name(&format!("{}.txt", s.display_name.trim_end_matches(".pdf")))
+                                        .save_file()
+                                    {
+                                        let text = rustpdf_export::export_plain_text_doc(s.cos_doc.inner());
+                                        match std::fs::write(&path, text) {
+                                            Ok(()) => self.notify_success(format!("Exported Text: {}", path.display())),
+                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        }
+                                    }
+                                }
+                            }
+                            crate::tools_panel::ToolAction::ExportSpreadsheet => {
+                                if let Some(s) = self.active_session() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("CSV Spreadsheet", &["csv"])
+                                        .set_file_name(&format!("{}.csv", s.display_name.trim_end_matches(".pdf")))
+                                        .save_file()
+                                    {
+                                        let csv = rustpdf_export::export_csv_doc(s.cos_doc.inner());
+                                        match std::fs::write(&path, csv) {
+                                            Ok(()) => self.notify_success(format!("Exported CSV: {}", path.display())),
+                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        }
+                                    }
+                                }
+                            }
+                            crate::tools_panel::ToolAction::ExportPresentation => {
+                                if let Some(s) = self.active_session() {
+                                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                        let prefix = s.display_name.trim_end_matches(".pdf");
+                                        match rustpdf_export::export_all_pages_png(&s.raw_bytes, &folder, &format!("{}_slide", prefix), 2.0) {
+                                            Ok(paths) => self.notify_success(format!("Exported {} slide images to: {}", paths.len(), folder.display())),
+                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        }
+                                    }
+                                }
+                            }
+                            crate::tools_panel::ToolAction::ExportPostScript => {
+                                if let Some(s) = self.active_session() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("Text / PostScript", &["ps", "txt"])
+                                        .save_file()
+                                    {
+                                        let text = rustpdf_export::export_plain_text_doc(s.cos_doc.inner());
+                                        let _ = std::fs::write(&path, text);
+                                        self.notify_success(format!("Exported: {}", path.display()));
+                                    }
+                                }
+                            }
+                            crate::tools_panel::ToolAction::ExportImagePng => {
+                                let curr = self.viewer_state.current_page;
+                                if let Some(s) = self.active_session() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("PNG Image", &["png"])
+                                        .set_file_name(&format!("{}_page_{}.png", s.display_name.trim_end_matches(".pdf"), curr + 1))
+                                        .save_file()
+                                    {
+                                        match rustpdf_export::export_page_png(&s.raw_bytes, curr, 2.0) {
+                                            Ok(bytes) => match std::fs::write(&path, bytes) {
+                                                Ok(()) => self.notify_success(format!("Exported Page {} as PNG: {}", curr + 1, path.display())),
+                                                Err(e) => self.notify_error(format!("Save failed: {e}")),
+                                            },
+                                            Err(e) => self.notify_error(format!("Rasterization failed: {e}")),
+                                        }
+                                    }
+                                }
+                            }
+                            crate::tools_panel::ToolAction::ExportAllImages => {
+                                if let Some(s) = self.active_session() {
+                                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                        let prefix = s.display_name.trim_end_matches(".pdf");
+                                        match rustpdf_export::export_all_pages_png(&s.raw_bytes, &folder, prefix, 2.0) {
+                                            Ok(paths) => self.notify_success(format!("Exported {} page images to: {}", paths.len(), folder.display())),
+                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        }
                                     }
                                 }
                             }
                             crate::tools_panel::ToolAction::FillAddText => {
-                                let curr = self.viewer_state.current_page;
-                                if let Some(s) = self.active_session_mut() {
-                                    let annot = rustpdf_annot::Annotation {
-                                        id: None,
-                                        page_index: curr,
-                                        annot_type: rustpdf_annot::AnnotType::Text,
-                                        rect: rustpdf_geom::Rect::new(100.0, 680.0, 260.0, 715.0),
-                                        color: [0.55, 0.36, 0.96],
-                                        contents: Some("Type text here".to_string()),
-                                        author: Some("Fill & Sign".to_string()),
-                                        date: Some(
-                                            chrono::Local::now()
-                                                .format("%Y-%m-%d %H:%M")
-                                                .to_string(),
-                                        ),
-                                        ink_paths: None,
-                                    };
-                                    let _ = s.add_annotation(&annot);
-                                }
-                                self.modals_state.show_annotations_manager = true;
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool = EditTool::AddText;
+                                self.notify_success("Click anywhere on the document page to place a new text box");
                             }
                             crate::tools_panel::ToolAction::FillCheckmark => {
-                                let curr = self.viewer_state.current_page;
-                                if let Some(s) = self.active_session_mut() {
-                                    let annot = rustpdf_annot::Annotation {
-                                        id: None,
-                                        page_index: curr,
-                                        annot_type: rustpdf_annot::AnnotType::Text,
-                                        rect: rustpdf_geom::Rect::new(100.0, 680.0, 130.0, 710.0),
-                                        color: [0.55, 0.36, 0.96],
-                                        contents: Some("✓".to_string()),
-                                        author: Some("Fill & Sign".to_string()),
-                                        date: Some(
-                                            chrono::Local::now()
-                                                .format("%Y-%m-%d %H:%M")
-                                                .to_string(),
-                                        ),
-                                        ink_paths: None,
-                                    };
-                                    let _ = s.add_annotation(&annot);
-                                }
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool = EditTool::Stamp(StampKind::Checkmark);
+                                self.notify_success("Click anywhere on the document page to stamp ✓");
                             }
                             crate::tools_panel::ToolAction::FillCross => {
-                                let curr = self.viewer_state.current_page;
-                                if let Some(s) = self.active_session_mut() {
-                                    let annot = rustpdf_annot::Annotation {
-                                        id: None,
-                                        page_index: curr,
-                                        annot_type: rustpdf_annot::AnnotType::Text,
-                                        rect: rustpdf_geom::Rect::new(100.0, 680.0, 130.0, 710.0),
-                                        color: [0.55, 0.36, 0.96],
-                                        contents: Some("✕".to_string()),
-                                        author: Some("Fill & Sign".to_string()),
-                                        date: Some(
-                                            chrono::Local::now()
-                                                .format("%Y-%m-%d %H:%M")
-                                                .to_string(),
-                                        ),
-                                        ink_paths: None,
-                                    };
-                                    let _ = s.add_annotation(&annot);
-                                }
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool = EditTool::Stamp(StampKind::Cross);
+                                self.notify_success("Click anywhere on the document page to stamp ✕");
                             }
                             crate::tools_panel::ToolAction::FillDot => {
-                                let curr = self.viewer_state.current_page;
-                                if let Some(s) = self.active_session_mut() {
-                                    let annot = rustpdf_annot::Annotation {
-                                        id: None,
-                                        page_index: curr,
-                                        annot_type: rustpdf_annot::AnnotType::Circle,
-                                        rect: rustpdf_geom::Rect::new(100.0, 680.0, 124.0, 704.0),
-                                        color: [0.55, 0.36, 0.96],
-                                        contents: Some("●".to_string()),
-                                        author: Some("Fill & Sign".to_string()),
-                                        date: Some(
-                                            chrono::Local::now()
-                                                .format("%Y-%m-%d %H:%M")
-                                                .to_string(),
-                                        ),
-                                        ink_paths: None,
-                                    };
-                                    let _ = s.add_annotation(&annot);
-                                }
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool = EditTool::Stamp(StampKind::Dot);
+                                self.notify_success("Click anywhere on the document page to stamp ●");
                             }
                             crate::tools_panel::ToolAction::FillLine => {
-                                let curr = self.viewer_state.current_page;
-                                if let Some(s) = self.active_session_mut() {
-                                    let annot = rustpdf_annot::Annotation {
-                                        id: None,
-                                        page_index: curr,
-                                        annot_type: rustpdf_annot::AnnotType::Line,
-                                        rect: rustpdf_geom::Rect::new(100.0, 690.0, 240.0, 690.0),
-                                        color: [0.55, 0.36, 0.96],
-                                        contents: Some("—".to_string()),
-                                        author: Some("Fill & Sign".to_string()),
-                                        date: Some(
-                                            chrono::Local::now()
-                                                .format("%Y-%m-%d %H:%M")
-                                                .to_string(),
-                                        ),
-                                        ink_paths: None,
-                                    };
-                                    let _ = s.add_annotation(&annot);
-                                }
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool = EditTool::Stamp(StampKind::Line);
+                                self.notify_success("Click anywhere on the document page to stamp —");
                             }
                             crate::tools_panel::ToolAction::FillDate => {
-                                let curr = self.viewer_state.current_page;
-                                let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-                                if let Some(s) = self.active_session_mut() {
-                                    let annot = rustpdf_annot::Annotation {
-                                        id: None,
-                                        page_index: curr,
-                                        annot_type: rustpdf_annot::AnnotType::Text,
-                                        rect: rustpdf_geom::Rect::new(100.0, 680.0, 220.0, 710.0),
-                                        color: [0.55, 0.36, 0.96],
-                                        contents: Some(today),
-                                        author: Some("Fill & Sign".to_string()),
-                                        date: Some(
-                                            chrono::Local::now()
-                                                .format("%Y-%m-%d %H:%M")
-                                                .to_string(),
-                                        ),
-                                        ink_paths: None,
-                                    };
-                                    let _ = s.add_annotation(&annot);
-                                }
+                                self.active_workspace = ActiveWorkspace::Viewer;
+                                self.viewer_state.is_edit_mode = true;
+                                self.viewer_state.active_tool = EditTool::Stamp(StampKind::Date);
+                                self.notify_success("Click anywhere on the document page to stamp today's date");
                             }
                             crate::tools_panel::ToolAction::SignAddSignature => {
+                                self.modals_state.target_page = self.viewer_state.current_page + 1;
                                 self.modals_state.is_initials_mode = false;
                                 self.modals_state.show_signature_dialog = true;
                             }
                             crate::tools_panel::ToolAction::SignAddInitials => {
+                                self.modals_state.target_page = self.viewer_state.current_page + 1;
                                 self.modals_state.is_initials_mode = true;
                                 self.modals_state.show_signature_dialog = true;
                             }
@@ -977,7 +1072,7 @@ impl App for RustPdfApp {
                             }
                             crate::tools_panel::ToolAction::RedactPdf => {
                                 // Priority 5: Distinguish Redaction from Cover-up
-                                log::warn!("Redaction is unsupported in v0.3.0. True sanitization is planned for a future release.");
+                                log::warn!("Redaction is unsupported in v0.4.0. True sanitization is planned for a future release.");
                             }
                             crate::tools_panel::ToolAction::CompressPdf => {
                                 if let Some(s) = self.active_session_mut() {
@@ -1273,6 +1368,7 @@ impl App for RustPdfApp {
                     if let Some(session) =
                         self.active_tab.and_then(|idx| self.sessions.get_mut(idx))
                     {
+                        let doc_id = session.id;
                         match act {
                             OrganizerAction::Rotate(deg) => {
                                 let _ = session.rotate_pages(&selected_pages, deg);
@@ -1288,6 +1384,22 @@ impl App for RustPdfApp {
                                     let _ = session.duplicate_page(first);
                                 }
                             }
+                            OrganizerAction::MoveLeft => {
+                                if let Some(first) = first_selected {
+                                    if first > 0 {
+                                        let _ = session.move_page(first, first - 1);
+                                        self.organizer_state.select_single(first - 1);
+                                    }
+                                }
+                            }
+                            OrganizerAction::MoveRight => {
+                                if let Some(first) = first_selected {
+                                    if first + 1 < session.page_count() {
+                                        let _ = session.move_page(first, first + 1);
+                                        self.organizer_state.select_single(first + 1);
+                                    }
+                                }
+                            }
                             OrganizerAction::Undo => {
                                 let _ = session.undo();
                             }
@@ -1295,6 +1407,8 @@ impl App for RustPdfApp {
                                 let _ = session.redo();
                             }
                         }
+                        self.organizer_state.invalidate_doc(doc_id);
+                        self.viewer_state.invalidate_doc(doc_id);
                     }
 
                     if matches!(act, OrganizerAction::Delete) {
@@ -1379,6 +1493,13 @@ impl App for RustPdfApp {
                     }
                     _ => {}
                 },
+                ModalAction::DocumentModified => {
+                    if let Some(session) = self.active_session() {
+                        let doc_id = session.id;
+                        self.organizer_state.invalidate_doc(doc_id);
+                        self.viewer_state.invalidate_doc(doc_id);
+                    }
+                }
             }
         }
     }

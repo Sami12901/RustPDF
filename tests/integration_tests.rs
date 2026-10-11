@@ -3,7 +3,6 @@
 use rustpdf_engine::DocumentSession;
 use rustpdf_export::create_blank_pdf;
 use rustpdf_organize::{combine_documents, split_document, SplitRule};
-use std::fs;
 
 #[test]
 fn test_full_document_lifecycle() {

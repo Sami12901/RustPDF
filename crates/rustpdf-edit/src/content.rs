@@ -171,7 +171,8 @@ pub fn add_text_to_page(
     append_page_content(doc, page_id, stream_str.into_bytes())
 }
 
-/// Embeds an image (PNG, JPEG, etc.) onto a page at (x, y) with (width_pt, height_pt) dimensions.
+/// Embeds an image (PNG, JPEG, WebP, etc.) onto a page at (x, y) with (width_pt, height_pt) dimensions.
+/// Transparent PNGs/WebPs have their alpha channel extracted into a compliant ISO 32000-1 /SMask image dictionary.
 pub fn insert_image_to_page(
     doc: &mut LopdfDoc,
     page_index: usize,
@@ -183,9 +184,28 @@ pub fn insert_image_to_page(
 ) -> Result<(), EditError> {
     let img =
         image::load_from_memory(image_bytes).map_err(|e| EditError::ImageError(e.to_string()))?;
-    let rgb = img.to_rgb8();
-    let (w, h) = rgb.dimensions();
-    let raw_data = rgb.into_raw();
+    let (w, h) = (img.width(), img.height());
+    if (w as u64) * (h as u64) > 64_000_000 {
+        return Err(EditError::ImageError(
+            "image dimensions exceed 64 megapixel security limit".to_string(),
+        ));
+    }
+
+    let rgba = img.to_rgba8();
+    let mut rgb_data = Vec::with_capacity((w * h * 3) as usize);
+    let mut alpha_data = Vec::with_capacity((w * h) as usize);
+    let mut has_transparency = false;
+
+    for pixel in rgba.pixels() {
+        rgb_data.push(pixel[0]);
+        rgb_data.push(pixel[1]);
+        rgb_data.push(pixel[2]);
+        let a = pixel[3];
+        alpha_data.push(a);
+        if a < 255 {
+            has_transparency = true;
+        }
+    }
 
     let mut img_dict = Dictionary::new();
     img_dict.set(b"Type", Object::Name(b"XObject".to_vec()));
@@ -195,8 +215,24 @@ pub fn insert_image_to_page(
     img_dict.set(b"ColorSpace", Object::Name(b"DeviceRGB".to_vec()));
     img_dict.set(b"BitsPerComponent", Object::Integer(8));
 
-    let stream = Stream::new(img_dict, raw_data);
+    // If image has transparent pixels, create a compliant ISO 32000-1 /SMask (Soft Mask) dictionary
+    if has_transparency {
+        let mut smask_dict = Dictionary::new();
+        smask_dict.set(b"Type", Object::Name(b"XObject".to_vec()));
+        smask_dict.set(b"Subtype", Object::Name(b"Image".to_vec()));
+        smask_dict.set(b"Width", Object::Integer(w as i64));
+        smask_dict.set(b"Height", Object::Integer(h as i64));
+        smask_dict.set(b"ColorSpace", Object::Name(b"DeviceGray".to_vec()));
+        smask_dict.set(b"BitsPerComponent", Object::Integer(8));
+
+        let smask_stream = Stream::new(smask_dict, alpha_data);
+        let smask_id = doc.add_object(smask_stream);
+        img_dict.set(b"SMask", Object::Reference(smask_id));
+    }
+
+    let stream = Stream::new(img_dict, rgb_data);
     let img_id = doc.add_object(stream);
+
 
     let page_map = doc.get_pages();
     let page_num = (page_index + 1) as u32;
@@ -1002,4 +1038,37 @@ mod tests {
             _ => panic!("Expected contents to be reference or array"),
         }
     }
+
+    #[test]
+    fn test_insert_image_transparent_smask() {
+        let (mut doc, _) = create_test_page_doc(b"");
+
+        // Create 2x2 RGBA PNG with alpha
+        let mut img_buf = image::RgbaImage::new(2, 2);
+        img_buf.put_pixel(0, 0, image::Rgba([255, 0, 0, 128]));
+        img_buf.put_pixel(1, 1, image::Rgba([0, 255, 0, 255]));
+        let mut png_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut png_bytes);
+        img_buf.write_to(&mut cursor, image::ImageFormat::Png).unwrap();
+
+        insert_image_to_page(&mut doc, 0, &png_bytes, 50.0, 50.0, 100.0, 100.0).unwrap();
+
+        // Verify that an image object and an SMask object were added
+        let mut found_image_with_smask = false;
+        for (_, obj) in &doc.objects {
+            if let Object::Stream(ref stream) = obj {
+                if let Ok(subtype) = stream.dict.get(b"Subtype").and_then(Object::as_name) {
+                    if subtype == b"Image" && stream.dict.has(b"SMask") {
+                        found_image_with_smask = true;
+                        break;
+                    }
+                }
+            }
+        }
+        assert!(
+            found_image_with_smask,
+            "Expected image to contain an /SMask reference for alpha transparency"
+        );
+    }
 }
+

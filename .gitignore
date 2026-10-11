@@ -2,6 +2,7 @@
 /target/
 **/*.rs.bk
 *.pdb
+*.exe
 
 # IDE / Editor Files
 .idea/

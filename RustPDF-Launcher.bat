@@ -11,7 +11,7 @@ set SCRIPT_DIR=%~dp0
 set APP_EXE=%SCRIPT_DIR%target\release\rustpdf.exe
 
 if not exist "%APP_EXE%" (
-    set APP_EXE=%SCRIPT_DIR%..\target\release\rustpdf.exe
+    set APP_EXE=%SCRIPT_DIR%target\debug\rustpdf.exe
 )
 
 if not exist "%APP_EXE%" (
@@ -24,8 +24,8 @@ if not exist "%APP_EXE%" (
     where cargo >nul 2>nul
     if %ERRORLEVEL% EQU 0 (
         echo [INFO] Launching RustPDF with Cargo...
-        cd /d "%SCRIPT_DIR%.."
-        cargo run --release -p rustpdf
+        cd /d "%SCRIPT_DIR%"
+        cargo run --release -p rustpdf -- %*
         goto :EOF
     ) else (
         echo [INFO] Cargo not found. Downloading prebuilt RustPDF for Windows...

@@ -71,6 +71,10 @@ pub struct ModalsState {
     pub edit_bates_prefix: String,
     pub edit_bates_start: u32,
     pub edit_link_url: String,
+
+    // Target page selection for modals that act on pages (1-based for user display)
+    pub target_page: usize,
+    pub apply_to_all_pages: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,6 +126,8 @@ impl Default for ModalsState {
             edit_bates_prefix: String::from("DOC-"),
             edit_bates_start: 1,
             edit_link_url: String::from("https://github.com/Sami12901/RustPDF"),
+            target_page: 1,
+            apply_to_all_pages: false,
             combine_inputs: Vec::new(),
             split_every_n: 1,
             split_out_dir: PathBuf::from("."),
@@ -142,6 +148,7 @@ pub enum ModalAction {
     Combine(Vec<PathBuf>),
     Split(usize, PathBuf),
     ExecuteCommand(String),
+    DocumentModified,
 }
 
 pub struct ModalsComponent;
@@ -746,11 +753,21 @@ impl ModalsComponent {
         // 11. Comments & Annotations Manager
         if state.show_annotations_manager {
             if let Some(ref mut s) = session {
+                let total_pages = s.page_count().max(1);
+                let target_idx = (state.target_page.clamp(1, total_pages)) - 1;
+
                 Window::new("Comments & Annotations")
                     .open(&mut state.show_annotations_manager)
                     .resizable(true)
                     .default_width(440.0)
                     .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Page:");
+                            ui.add(egui::DragValue::new(&mut state.target_page).range(1..=total_pages));
+                            ui.label(format!("of {}", total_pages));
+                        });
+                        ui.separator();
+
                         ui.heading("Add Sticky Note / Comment");
                         ui.horizontal(|ui| {
                             ui.label("Author: ");
@@ -762,11 +779,11 @@ impl ModalsComponent {
                         });
 
                         ui.add_space(6.0);
-                        if ui.button("➕ Add Note to Page 1").clicked() {
+                        if ui.button(format!("➕ Add Note to Page {}", target_idx + 1)).clicked() {
                             if !state.new_annot_text.is_empty() {
                                 let annot = rustpdf_annot::Annotation {
                                     id: None,
-                                    page_index: 0,
+                                    page_index: target_idx,
                                     annot_type: rustpdf_annot::AnnotType::Text,
                                     rect: rustpdf_geom::Rect::new(100.0, 700.0, 140.0, 740.0),
                                     color: [1.0, 0.85, 0.0],
@@ -779,12 +796,13 @@ impl ModalsComponent {
                                 };
                                 let _ = s.add_annotation(&annot);
                                 state.new_annot_text.clear();
+                                action = Some(ModalAction::DocumentModified);
                             }
                         }
 
                         ui.add_space(12.0);
-                        ui.heading("Page 1 Annotations");
-                        let annots = s.get_annotations(0);
+                        ui.heading(format!("Page {} Annotations", target_idx + 1));
+                        let annots = s.get_annotations(target_idx);
                         if annots.is_empty() {
                             ui.label(
                                 RichText::new("No annotations on this page.")
@@ -801,15 +819,16 @@ impl ModalsComponent {
                                             a.contents.as_deref().unwrap_or("No content")
                                         ));
                                         if let Some(ref_id) = a.id {
-                                            if ui.button("🗑").clicked() {
-                                                to_delete = Some(ref_id);
-                                            }
+                                             if ui.button("🗑").clicked() {
+                                                 to_delete = Some(ref_id);
+                                             }
                                         }
                                     });
                                 }
                             });
                             if let Some(id) = to_delete {
                                 let _ = s.delete_annotation(id);
+                                action = Some(ModalAction::DocumentModified);
                             }
                         }
                     });
@@ -829,6 +848,16 @@ impl ModalsComponent {
                 .resizable(true)
                 .default_width(380.0)
                 .show(ctx, |ui| {
+                    if let Some(ref s) = session {
+                        let total_pages = s.page_count().max(1);
+                        ui.horizontal(|ui| {
+                            ui.label("Stamp on Page:");
+                            ui.add(egui::DragValue::new(&mut state.target_page).range(1..=total_pages));
+                            ui.label(format!("of {}", total_pages));
+                        });
+                        ui.separator();
+                    }
+
                     ui.add_space(4.0);
                     let prompt = if state.is_initials_mode {
                         "Enter your initials:"
@@ -886,10 +915,12 @@ impl ModalsComponent {
                     ui.add_space(14.0);
                     ui.horizontal(|ui| {
                         if let Some(ref mut s) = session {
+                            let total_pages = s.page_count().max(1);
+                            let target_idx = (state.target_page.clamp(1, total_pages)) - 1;
                             let btn_label = if state.is_initials_mode {
-                                "🖋 Stamp Initials to Page 1"
+                                format!("🖋 Stamp Initials to Page {}", target_idx + 1)
                             } else {
-                                "🖋 Stamp Signature to Page 1"
+                                format!("🖋 Stamp Signature to Page {}", target_idx + 1)
                             };
                             if ui.button(RichText::new(btn_label).strong()).clicked() {
                                 let content = if state.is_initials_mode {
@@ -899,7 +930,7 @@ impl ModalsComponent {
                                 };
                                 let annot = rustpdf_annot::Annotation {
                                     id: None,
-                                    page_index: 0,
+                                    page_index: target_idx,
                                     annot_type: rustpdf_annot::AnnotType::Text,
                                     rect: rustpdf_geom::Rect::new(100.0, 650.0, 300.0, 690.0),
                                     color: [0.12, 0.45, 0.90],
@@ -912,6 +943,7 @@ impl ModalsComponent {
                                 };
                                 let _ = s.add_annotation(&annot);
                                 close_signature = true;
+                                action = Some(ModalAction::DocumentModified);
                             }
                         } else {
                             ui.label(
@@ -937,6 +969,21 @@ impl ModalsComponent {
                 .resizable(true)
                 .default_width(520.0)
                 .show(ctx, |ui| {
+                    let (total_pages, target_idx) = if let Some(ref s) = session {
+                        let tot = s.page_count().max(1);
+                        let idx = (state.target_page.clamp(1, tot)) - 1;
+                        (tot, idx)
+                    } else {
+                        (1, 0)
+                    };
+
+                    ui.horizontal(|ui| {
+                        ui.label("Target Page:");
+                        ui.add(egui::DragValue::new(&mut state.target_page).range(1..=total_pages));
+                        ui.label(format!("of {}", total_pages));
+                    });
+                    ui.separator();
+
                     // Navigation Tabs
                     ui.horizontal_wrapped(|ui| {
                         ui.selectable_value(
@@ -980,7 +1027,7 @@ impl ModalsComponent {
 
                     match state.edit_content_tab {
                         EditContentTab::Text => {
-                            ui.heading("Add New Text Box");
+                            ui.heading(format!("Add New Text Box (Page {})", target_idx + 1));
                             ui.horizontal(|ui| {
                                 ui.label("Text:     ");
                                 ui.text_edit_singleline(&mut state.edit_text_input);
@@ -1006,11 +1053,11 @@ impl ModalsComponent {
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
                                 if ui
-                                    .button(RichText::new("➕ Apply Text to Page 1").strong())
+                                    .button(RichText::new(format!("➕ Apply Text to Page {}", target_idx + 1)).strong())
                                     .clicked()
                                 {
                                     let _ = s.add_text_to_page(
-                                        0,
+                                        target_idx,
                                         &state.edit_text_input,
                                         state.edit_text_x,
                                         state.edit_text_y,
@@ -1019,11 +1066,12 @@ impl ModalsComponent {
                                         [0.1, 0.1, 0.1],
                                     );
                                     close_edit = true;
+                                    action = Some(ModalAction::DocumentModified);
                                 }
                             }
 
                             ui.separator();
-                            ui.heading("Find & Replace Text in Page 1");
+                            ui.heading(format!("Find & Replace Text in Page {}", target_idx + 1));
                             ui.horizontal(|ui| {
                                 ui.label("Find:   ");
                                 ui.text_edit_singleline(&mut state.edit_find_query);
@@ -1034,19 +1082,20 @@ impl ModalsComponent {
                             });
 
                             if let Some(ref mut s) = session {
-                                if ui.button("🔄 Replace Text in Page").clicked() {
+                                if ui.button(format!("🔄 Replace Text in Page {}", target_idx + 1)).clicked() {
                                     let _ = s.search_and_replace_text(
-                                        0,
+                                        target_idx,
                                         &state.edit_find_query,
                                         &state.edit_replace_query,
                                     );
                                     close_edit = true;
+                                    action = Some(ModalAction::DocumentModified);
                                 }
                             }
                         }
 
                         EditContentTab::Image => {
-                            ui.heading("Embed Image (PNG / JPEG)");
+                            ui.heading(format!("Embed Image on Page {}", target_idx + 1));
                             if ui.button("📁 Choose Image File...").clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("Image", &["png", "jpg", "jpeg"])
@@ -1089,13 +1138,13 @@ impl ModalsComponent {
                             if let Some(ref mut s) = session {
                                 let has_img = state.edit_image_path.is_some();
                                 if ui
-                                    .add_enabled(has_img, Button::new("🖼 Insert Image onto Page 1"))
+                                    .add_enabled(has_img, Button::new(format!("🖼 Insert Image onto Page {}", target_idx + 1)))
                                     .clicked()
                                 {
                                     if let Some(ref img_p) = state.edit_image_path {
                                         if let Ok(bytes) = std::fs::read(img_p) {
                                             let _ = s.insert_image_to_page(
-                                                0,
+                                                target_idx,
                                                 &bytes,
                                                 state.edit_image_x,
                                                 state.edit_image_y,
@@ -1103,6 +1152,7 @@ impl ModalsComponent {
                                                 state.edit_image_h,
                                             );
                                             close_edit = true;
+                                            action = Some(ModalAction::DocumentModified);
                                         }
                                     }
                                 }
@@ -1111,6 +1161,7 @@ impl ModalsComponent {
 
                         EditContentTab::Watermark => {
                             ui.heading("Add Document Watermark");
+                            ui.checkbox(&mut state.apply_to_all_pages, "Apply to all pages in document");
                             ui.horizontal(|ui| {
                                 ui.label("Watermark Text:");
                                 ui.text_edit_singleline(&mut state.edit_watermark_text);
@@ -1132,22 +1183,33 @@ impl ModalsComponent {
 
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
-                                if ui.button("🌊 Apply Watermark to All Pages").clicked() {
-                                    let all_pages: Vec<usize> = (0..s.page_count()).collect();
+                                let btn_label = if state.apply_to_all_pages {
+                                    "🌊 Apply Watermark to All Pages".to_string()
+                                } else {
+                                    format!("🌊 Apply Watermark to Page {}", target_idx + 1)
+                                };
+                                if ui.button(btn_label).clicked() {
+                                    let pages: Vec<usize> = if state.apply_to_all_pages {
+                                        (0..s.page_count()).collect()
+                                    } else {
+                                        vec![target_idx]
+                                    };
                                     let _ = s.add_watermark(
-                                        &all_pages,
+                                        &pages,
                                         &state.edit_watermark_text,
                                         state.edit_watermark_size,
                                         [0.75, 0.75, 0.85],
                                         state.edit_watermark_rotation,
                                     );
                                     close_edit = true;
+                                    action = Some(ModalAction::DocumentModified);
                                 }
                             }
                         }
 
                         EditContentTab::HeaderFooter => {
                             ui.heading("Header & Footer");
+                            ui.checkbox(&mut state.apply_to_all_pages, "Apply to all pages in document");
                             ui.label(
                                 "Use {n} for current page number and {total} for total page count.",
                             );
@@ -1162,42 +1224,58 @@ impl ModalsComponent {
 
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
-                                if ui.button("📄 Apply Header & Footer to All Pages").clicked() {
-                                    let all_pages: Vec<usize> = (0..s.page_count()).collect();
+                                let btn_label = if state.apply_to_all_pages {
+                                    "📄 Apply Header & Footer to All Pages".to_string()
+                                } else {
+                                    format!("📄 Apply Header & Footer to Page {}", target_idx + 1)
+                                };
+                                if ui.button(btn_label).clicked() {
+                                    let pages: Vec<usize> = if state.apply_to_all_pages {
+                                        (0..s.page_count()).collect()
+                                    } else {
+                                        vec![target_idx]
+                                    };
                                     let _ = s.add_header_footer(
-                                        &all_pages,
+                                        &pages,
                                         Some(&state.edit_header_text),
                                         Some(&state.edit_footer_text),
                                         10.0,
                                         [0.3, 0.3, 0.3],
                                     );
                                     close_edit = true;
+                                    action = Some(ModalAction::DocumentModified);
                                 }
                             }
                         }
 
                         EditContentTab::Background => {
                             ui.heading("Page Background Color");
+                            ui.checkbox(&mut state.apply_to_all_pages, "Apply to all pages in document");
                             ui.label(
                                 "Adds a solid colored backdrop layer behind existing contents:",
                             );
                             ui.add_space(6.0);
                             if let Some(ref mut s) = session {
+                                let pages: Vec<usize> = if state.apply_to_all_pages {
+                                    (0..s.page_count()).collect()
+                                } else {
+                                    vec![target_idx]
+                                };
                                 ui.horizontal(|ui| {
                                     if ui.button("🍦 Warm Cream (#FFFDF0)").clicked() {
-                                        let all_pages: Vec<usize> = (0..s.page_count()).collect();
-                                        let _ = s.add_background(&all_pages, [1.0, 0.99, 0.94]);
+                                        let _ = s.add_background(&pages, [1.0, 0.99, 0.94]);
                                         close_edit = true;
+                                        action = Some(ModalAction::DocumentModified);
                                     }
                                     if ui.button("🌫 Soft Gray (#F4F4F6)").clicked() {
-                                        let all_pages: Vec<usize> = (0..s.page_count()).collect();
-                                        let _ = s.add_background(&all_pages, [0.95, 0.95, 0.96]);
+                                        let _ = s.add_background(&pages, [0.95, 0.95, 0.96]);
                                         close_edit = true;
+                                        action = Some(ModalAction::DocumentModified);
                                     }
                                     if ui.button("❄ Pure White (#FFFFFF)").clicked() {
-                                        let all_pages: Vec<usize> = (0..s.page_count()).collect();
-                                        let _ = s.add_background(&all_pages, [1.0, 1.0, 1.0]);
+                                        let _ = s.add_background(&pages, [1.0, 1.0, 1.0]);
                                         close_edit = true;
+                                        action = Some(ModalAction::DocumentModified);
                                     }
                                 });
                             }
@@ -1205,6 +1283,7 @@ impl ModalsComponent {
 
                         EditContentTab::Bates => {
                             ui.heading("Bates Numbering");
+                            ui.checkbox(&mut state.apply_to_all_pages, "Apply to all pages in document");
                             ui.horizontal(|ui| {
                                 ui.label("Prefix:       ");
                                 ui.text_edit_singleline(&mut state.edit_bates_prefix);
@@ -1216,21 +1295,31 @@ impl ModalsComponent {
 
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
-                                if ui.button("🔢 Apply Bates Numbering to All Pages").clicked() {
-                                    let all_pages: Vec<usize> = (0..s.page_count()).collect();
+                                let btn_label = if state.apply_to_all_pages {
+                                    "🔢 Apply Bates Numbering to All Pages".to_string()
+                                } else {
+                                    format!("🔢 Apply Bates Numbering to Page {}", target_idx + 1)
+                                };
+                                if ui.button(btn_label).clicked() {
+                                    let pages: Vec<usize> = if state.apply_to_all_pages {
+                                        (0..s.page_count()).collect()
+                                    } else {
+                                        vec![target_idx]
+                                    };
                                     let _ = s.add_bates_numbering(
-                                        &all_pages,
+                                        &pages,
                                         &state.edit_bates_prefix,
                                         state.edit_bates_start,
                                         6,
                                     );
                                     close_edit = true;
+                                    action = Some(ModalAction::DocumentModified);
                                 }
                             }
                         }
 
                         EditContentTab::Link => {
-                            ui.heading("Hyperlink Annotation");
+                            ui.heading(format!("Hyperlink Annotation (Page {})", target_idx + 1));
                             ui.horizontal(|ui| {
                                 ui.label("URL: ");
                                 ui.text_edit_singleline(&mut state.edit_link_url);
@@ -1238,10 +1327,11 @@ impl ModalsComponent {
 
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
-                                if ui.button("🔗 Add Link to Page 1").clicked() {
+                                if ui.button(format!("🔗 Add Link to Page {}", target_idx + 1)).clicked() {
                                     let rect = rustpdf_geom::Rect::new(72.0, 700.0, 300.0, 730.0);
-                                    let _ = s.add_link(0, rect, &state.edit_link_url);
+                                    let _ = s.add_link(target_idx, rect, &state.edit_link_url);
                                     close_edit = true;
+                                    action = Some(ModalAction::DocumentModified);
                                 }
                             }
                         }

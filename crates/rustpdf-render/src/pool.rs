@@ -193,3 +193,44 @@ impl RenderPool {
         self.result_rx.try_recv().ok()
     }
 }
+
+/// Synchronously renders a single page of a PDF document into raw RGBA pixels.
+pub fn render_page_sync(
+    pdf_bytes: &[u8],
+    page_index: usize,
+    requested_scale: f32,
+) -> Result<(u32, u32, Vec<u8>), String> {
+    let pdf = Pdf::new(Arc::new(pdf_bytes.to_vec()))
+        .map_err(|e| format!("Failed to parse PDF: {e:?}"))?;
+    let pages = pdf.pages();
+    let page = pages
+        .get(page_index)
+        .ok_or_else(|| format!("Page {page_index} not found"))?;
+
+    let (w_pt, h_pt) = page.render_dimensions();
+    if w_pt < 0.5 || h_pt < 0.5 {
+        return Err(format!(
+            "Page {page_index} has empty bounds ({w_pt}x{h_pt})"
+        ));
+    }
+
+    let scale = effective_scale(w_pt, h_pt, requested_scale);
+
+    let ps = PixmapSettings {
+        x_scale: scale,
+        y_scale: scale,
+        bg_color: WHITE,
+    };
+
+    let rs = RenderSettings::default();
+    let cache = RenderCache::default();
+    let settings = InterpreterSettings::default();
+    let pixmap = render(page, &cache, &settings, &rs, &ps);
+
+    let width = pixmap.width() as u32;
+    let height = pixmap.height() as u32;
+    let rgba = pixmap.data_as_u8_slice().to_vec();
+
+    Ok((width, height, rgba))
+}
+

@@ -179,6 +179,86 @@ pub fn duplicate_page(doc: &mut LopdfDoc, index: usize) -> Result<(), OrganizeEr
     insert_page_into_document(doc, index + 1, copy_id)
 }
 
+/// Moves a page from one index to another (0-indexed).
+pub fn move_page(
+    doc: &mut LopdfDoc,
+    from_index: usize,
+    to_index: usize,
+) -> Result<(), OrganizeError> {
+    let pages: Vec<ObjectId> = doc.page_iter().collect();
+    let total = pages.len();
+    if from_index >= total {
+        return Err(OrganizeError::IndexOutOfBounds(from_index, total));
+    }
+    if to_index >= total {
+        return Err(OrganizeError::IndexOutOfBounds(to_index, total));
+    }
+    if from_index == to_index {
+        return Ok(());
+    }
+
+    let mut new_pages = pages;
+    let page_id = new_pages.remove(from_index);
+    new_pages.insert(to_index, page_id);
+
+    set_document_page_order(doc, &new_pages)
+}
+
+/// Reorders pages according to a sequence of page indices (e.g. `[2, 0, 1]`).
+pub fn reorder_pages(
+    doc: &mut LopdfDoc,
+    new_order: &[usize],
+) -> Result<(), OrganizeError> {
+    let pages: Vec<ObjectId> = doc.page_iter().collect();
+    let total = pages.len();
+    if new_order.len() != total {
+        return Err(OrganizeError::IndexOutOfBounds(new_order.len(), total));
+    }
+
+    let mut reordered = Vec::with_capacity(total);
+    for &idx in new_order {
+        if idx >= total {
+            return Err(OrganizeError::IndexOutOfBounds(idx, total));
+        }
+        reordered.push(pages[idx]);
+    }
+
+    set_document_page_order(doc, &reordered)
+}
+
+fn set_document_page_order(
+    doc: &mut LopdfDoc,
+    page_ids: &[ObjectId],
+) -> Result<(), OrganizeError> {
+    let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
+        root_ref
+    } else {
+        return Err(OrganizeError::CombineFailed("Missing catalog".to_string()));
+    };
+
+    let pages_root_id = {
+        let catalog = doc.get_object(catalog_id)?.as_dict()?;
+        if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
+            pages_ref
+        } else {
+            return Err(OrganizeError::CombineFailed("Missing pages root".to_string()));
+        }
+    };
+
+    for &page_id in page_ids {
+        if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
+            page_dict.set(b"Parent", Object::Reference(pages_root_id));
+        }
+    }
+
+    let pages_dict = doc.get_object_mut(pages_root_id)?.as_dict_mut()?;
+    let kid_refs: Vec<Object> = page_ids.iter().map(|&id| Object::Reference(id)).collect();
+    pages_dict.set(b"Kids", Object::Array(kid_refs));
+    pages_dict.set(b"Count", Object::Integer(page_ids.len() as i64));
+
+    Ok(())
+}
+
 /// Merges multiple PDF document byte buffers into a single combined PDF.
 pub fn combine_documents(inputs: &[Vec<u8>]) -> Result<Vec<u8>, OrganizeError> {
     if inputs.is_empty() {
@@ -297,4 +377,26 @@ mod tests {
         // Trying to delete last page must fail
         assert!(delete_pages(&mut doc, &[0]).is_err());
     }
+
+    #[test]
+    fn test_move_and_reorder_pages() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 2, 612.0, 792.0).unwrap();
+
+        let initial_order: Vec<ObjectId> = doc.page_iter().collect();
+        assert_eq!(initial_order.len(), 3);
+
+        // Move page 0 to index 2
+        move_page(&mut doc, 0, 2).unwrap();
+        let moved_order: Vec<ObjectId> = doc.page_iter().collect();
+        assert_eq!(moved_order, vec![initial_order[1], initial_order[2], initial_order[0]]);
+
+        // Reorder back: [2, 0, 1]
+        reorder_pages(&mut doc, &[2, 0, 1]).unwrap();
+        let reordered: Vec<ObjectId> = doc.page_iter().collect();
+        assert_eq!(reordered, initial_order);
+    }
 }
+

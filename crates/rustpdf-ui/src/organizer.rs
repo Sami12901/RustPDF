@@ -92,6 +92,8 @@ pub enum OrganizerAction {
     Delete,
     InsertBlank,
     Duplicate,
+    MoveLeft,
+    MoveRight,
     Undo,
     Redo,
 }
@@ -117,6 +119,11 @@ impl OrganizerComponent {
             ui.spacing_mut().item_spacing = vec2(8.0, 4.0);
 
             let has_selection = !state.selected_pages.is_empty();
+            let single_sel = if state.selected_pages.len() == 1 {
+                state.selected_pages.iter().next().copied()
+            } else {
+                None
+            };
 
             if ui
                 .add_enabled(has_selection, Button::new("⟳ Rotate 90° CW"))
@@ -130,6 +137,28 @@ impl OrganizerComponent {
                 .clicked()
             {
                 triggered_action = Some(OrganizerAction::Rotate(-90));
+            }
+
+            if ui
+                .add_enabled(
+                    single_sel.is_some_and(|p| p > 0),
+                    Button::new("⬅ Move Left"),
+                )
+                .on_hover_text("Move selected page earlier")
+                .clicked()
+            {
+                triggered_action = Some(OrganizerAction::MoveLeft);
+            }
+
+            if ui
+                .add_enabled(
+                    single_sel.is_some_and(|p| p + 1 < total_pages),
+                    Button::new("➡ Move Right"),
+                )
+                .on_hover_text("Move selected page later")
+                .clicked()
+            {
+                triggered_action = Some(OrganizerAction::MoveRight);
             }
 
             if ui

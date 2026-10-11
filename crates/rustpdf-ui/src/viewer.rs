@@ -18,12 +18,36 @@ pub enum ViewMode {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StampKind {
+    Checkmark,
+    Cross,
+    Dot,
+    Line,
+    Date,
+    Signature,
+}
+
+impl StampKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            StampKind::Checkmark => "Checkmark",
+            StampKind::Cross => "Cross",
+            StampKind::Dot => "Dot",
+            StampKind::Line => "Line",
+            StampKind::Date => "Date",
+            StampKind::Signature => "Signature",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditTool {
     Select,   // Select & Edit existing text bounding boxes
     Hand,     // Hand / Pan document
     AddText,  // Click on page to place a new text box
     AddImage, // Click on page to embed an image
     Draw,     // Ink / Drawing
+    Stamp(StampKind), // Click on page to place a Fill & Sign stamp
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -362,6 +386,17 @@ impl ViewerComponent {
                             .clicked()
                         {
                             state.active_tool = EditTool::Draw;
+                        }
+
+                        // Tool 6: Fill & Sign Stamp (Checkmark)
+                        let is_stamp = matches!(state.active_tool, EditTool::Stamp(_));
+                        if ui
+                            .selectable_label(is_stamp, " ✔ ")
+                            .on_hover_text("Stamp Symbol (Click on page)")
+                            .clicked()
+                        {
+                            state.is_edit_mode = true;
+                            state.active_tool = EditTool::Stamp(StampKind::Checkmark);
                         }
 
                         ui.separator();
@@ -737,6 +772,65 @@ impl ViewerComponent {
                             state.invalidate_page_texture(doc_id, page_index);
                             state.active_tool = EditTool::Select;
                         }
+                    }
+                }
+            }
+
+            // =====================================================================
+            // TOOL: FILL & SIGN STAMP BY CLICKING ANYWHERE ON PAGE
+            // =====================================================================
+            if let EditTool::Stamp(stamp_kind) = state.active_tool {
+                if resp.clicked() {
+                    if let Some(pointer_pos) = resp.interact_pointer_pos() {
+                        let pt_x = ((pointer_pos.x - rect.min.x) / rect.width()) * page_info.width;
+                        let pt_y = ((rect.max.y - pointer_pos.y) / rect.height()) * page_info.height;
+
+                        let (annot_type, contents, annot_rect) = match stamp_kind {
+                            StampKind::Checkmark => (
+                                rustpdf_annot::AnnotType::Text,
+                                "✓".to_string(),
+                                rustpdf_geom::Rect::new(pt_x - 12.0, pt_y - 12.0, pt_x + 12.0, pt_y + 12.0),
+                            ),
+                            StampKind::Cross => (
+                                rustpdf_annot::AnnotType::Text,
+                                "✕".to_string(),
+                                rustpdf_geom::Rect::new(pt_x - 12.0, pt_y - 12.0, pt_x + 12.0, pt_y + 12.0),
+                            ),
+                            StampKind::Dot => (
+                                rustpdf_annot::AnnotType::Circle,
+                                "●".to_string(),
+                                rustpdf_geom::Rect::new(pt_x - 10.0, pt_y - 10.0, pt_x + 10.0, pt_y + 10.0),
+                            ),
+                            StampKind::Line => (
+                                rustpdf_annot::AnnotType::Line,
+                                "—".to_string(),
+                                rustpdf_geom::Rect::new(pt_x - 40.0, pt_y, pt_x + 40.0, pt_y),
+                            ),
+                            StampKind::Date => (
+                                rustpdf_annot::AnnotType::Text,
+                                chrono::Local::now().format("%Y-%m-%d").to_string(),
+                                rustpdf_geom::Rect::new(pt_x, pt_y - 8.0, pt_x + 100.0, pt_y + 16.0),
+                            ),
+                            StampKind::Signature => (
+                                rustpdf_annot::AnnotType::Text,
+                                "Signature".to_string(),
+                                rustpdf_geom::Rect::new(pt_x, pt_y - 12.0, pt_x + 150.0, pt_y + 20.0),
+                            ),
+                        };
+
+                        let annot = rustpdf_annot::Annotation {
+                            id: None,
+                            page_index,
+                            annot_type,
+                            rect: annot_rect,
+                            color: [0.55, 0.36, 0.96],
+                            contents: Some(contents),
+                            author: Some("Fill & Sign".to_string()),
+                            date: Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
+                            ink_paths: None,
+                        };
+                        let _ = session.add_annotation(&annot);
+                        state.invalidate_page_texture(doc_id, page_index);
                     }
                 }
             }

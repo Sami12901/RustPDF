@@ -41,7 +41,7 @@ PDF files are treated as **untrusted, hostile inputs**. Malicious or malformed P
 
 ## 3. Cryptography & Password Protection Notice
 
-- **ISO 32000 Encryption**: Standard Security Handler password encryption (RC4/AES key derivation and ciphertext streams) is currently **Unsupported** in RustPdf v0.3.0.
+- **ISO 32000 Encryption**: Standard Security Handler password encryption (RC4/AES key derivation and ciphertext streams) is currently **Unsupported** in RustPdf v0.4.0.
 - **No Pseudo-Encryption**: In adherence to strict security standards, RustPdf rejects creating or advertising "password protected" PDFs that merely write unencrypted trailer dictionaries. Real password handling is scheduled for a future milestone following rigorous compliance testing.
 
 ---
