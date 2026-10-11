@@ -10,6 +10,7 @@
 )]
 
 pub mod app;
+pub mod fonts;
 pub mod home;
 pub mod icons;
 pub mod modals;

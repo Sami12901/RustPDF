@@ -621,24 +621,40 @@ pub fn add_link(
     Ok(())
 }
 
+use crate::bijoy::{bijoy_to_unicode, is_likely_bijoy, unicode_to_bijoy};
+use crate::cmap::ToUnicodeCMap;
+use std::collections::HashMap;
+
+/// Identifies the character encoding scheme of an extracted text block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BlockEncoding {
+    Unicode,
+    BijoyAnsi,
+    StandardLatin,
+}
+
 /// Represents an editable text block extracted from a page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PageTextBlock {
     pub id: usize,
     pub content_id: Option<ObjectId>,
     pub op_index: usize,
+    pub op_indices: Vec<usize>,
     pub text: String,
     /// Bounding rectangle in page points: [x, y, width, height] where y is from bottom in PDF points
     pub rect: [f32; 4],
     pub font_size: f32,
     pub font_name: String,
+    pub encoding: BlockEncoding,
 }
 
-fn decode_pdf_string_object(obj: &Object) -> String {
-    match obj {
-        Object::String(bytes, _) => decode_pdf_bytes(bytes),
-        _ => String::new(),
+fn decode_pdf_string_with_cmap(bytes: &[u8], cmap: Option<&ToUnicodeCMap>) -> String {
+    if let Some(cm) = cmap {
+        if !cm.char_map.is_empty() {
+            return cm.decode_bytes(bytes);
+        }
     }
+    decode_pdf_bytes(bytes)
 }
 
 fn decode_pdf_bytes(bytes: &[u8]) -> String {
@@ -656,18 +672,204 @@ fn decode_pdf_bytes(bytes: &[u8]) -> String {
     }
 }
 
-/// Extracts all text blocks with coordinates from a page's content streams.
+/// Helper extracting font dictionaries, BaseFont names, and ToUnicode CMaps for a page.
+fn get_page_font_cmaps_and_names(
+    doc: &LopdfDoc,
+    page_id: ObjectId,
+) -> (HashMap<String, ToUnicodeCMap>, HashMap<String, String>) {
+    let mut cmaps = HashMap::new();
+    let mut base_names = HashMap::new();
+
+    let Ok(page_dict) = doc.get_object(page_id).and_then(Object::as_dict) else {
+        return (cmaps, base_names);
+    };
+
+    let res_dict = if let Ok(res_ref) = page_dict.get(b"Resources").and_then(Object::as_reference) {
+        doc.get_object(res_ref).and_then(Object::as_dict).ok()
+    } else {
+        page_dict.get(b"Resources").and_then(Object::as_dict).ok()
+    };
+
+    let Some(res_dict) = res_dict else {
+        return (cmaps, base_names);
+    };
+
+    let fonts_dict = if let Ok(fonts_ref) = res_dict.get(b"Font").and_then(Object::as_reference) {
+        doc.get_object(fonts_ref).and_then(Object::as_dict).ok()
+    } else {
+        res_dict.get(b"Font").and_then(Object::as_dict).ok()
+    };
+
+    let Some(fonts_dict) = fonts_dict else {
+        return (cmaps, base_names);
+    };
+
+    for (font_key, font_obj) in fonts_dict.iter() {
+        let alias = String::from_utf8_lossy(font_key).to_string();
+        let font_dict = match font_obj {
+            Object::Reference(id) => doc.get_object(*id).and_then(Object::as_dict).ok(),
+            Object::Dictionary(d) => Some(d),
+            _ => None,
+        };
+
+        if let Some(f_dict) = font_dict {
+            if let Ok(base_font) = f_dict.get(b"BaseFont").and_then(Object::as_name) {
+                base_names.insert(
+                    alias.clone(),
+                    String::from_utf8_lossy(base_font).to_string(),
+                );
+            }
+
+            if let Ok(to_uni_ref) = f_dict.get(b"ToUnicode").and_then(Object::as_reference) {
+                if let Ok(stream) = doc.get_object(to_uni_ref).and_then(Object::as_stream) {
+                    let data = stream
+                        .decompressed_content()
+                        .unwrap_or_else(|_| stream.content.clone());
+                    let cmap = ToUnicodeCMap::parse(&data);
+                    cmaps.insert(alias.clone(), cmap);
+                }
+            } else if let Ok(stream) = f_dict.get(b"ToUnicode").and_then(Object::as_stream) {
+                let data = stream
+                    .decompressed_content()
+                    .unwrap_or_else(|_| stream.content.clone());
+                let cmap = ToUnicodeCMap::parse(&data);
+                cmaps.insert(alias.clone(), cmap);
+            }
+        }
+    }
+
+    (cmaps, base_names)
+}
+
+struct RawTextRun {
+    cid: ObjectId,
+    op_index: usize,
+    text: String,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    font_size: f32,
+    font_name: String,
+    encoding: BlockEncoding,
+}
+
+/// Clusters adjacent raw text runs on the same baseline into cohesive, unified PageTextBlocks.
+fn cluster_runs(runs: Vec<RawTextRun>, mut start_id: usize) -> Vec<PageTextBlock> {
+    if runs.is_empty() {
+        return Vec::new();
+    }
+
+    let mut sorted_runs = runs;
+    sorted_runs.sort_by(|a, b| {
+        let dy = (b.y - a.y).abs();
+        if dy < 3.5 {
+            a.x.total_cmp(&b.x)
+        } else {
+            b.y.total_cmp(&a.y)
+        }
+    });
+
+    let mut clusters: Vec<Vec<RawTextRun>> = Vec::new();
+
+    for run in sorted_runs {
+        if let Some(last_cluster) = clusters.last_mut() {
+            let last_run = last_cluster.last().unwrap();
+            let same_baseline = (run.y - last_run.y).abs() <= 3.5;
+            let prev_right = last_run.x + last_run.width;
+            let x_gap = run.x - prev_right;
+            let close_horizontal = run.x >= prev_right - (run.font_size * 0.3)
+                && x_gap <= (run.font_size * 1.5).max(14.0);
+
+            if same_baseline && close_horizontal {
+                last_cluster.push(run);
+                continue;
+            }
+        }
+        clusters.push(vec![run]);
+    }
+
+    let mut blocks = Vec::with_capacity(clusters.len());
+
+    for cluster in clusters {
+        if cluster.is_empty() {
+            continue;
+        }
+
+        let first = &cluster[0];
+        let cid = first.cid;
+        let mut min_x = first.x;
+        let mut max_x = first.x + first.width;
+        let mut min_y = first.y;
+        let mut max_h = first.height;
+        let font_size = first.font_size;
+        let font_name = first.font_name.clone();
+
+        let mut combined_text = String::new();
+        let mut op_indices = Vec::with_capacity(cluster.len());
+        let mut encoding = first.encoding;
+
+        for (i, r) in cluster.iter().enumerate() {
+            min_x = min_x.min(r.x);
+            max_x = max_x.max(r.x + r.width);
+            min_y = min_y.min(r.y);
+            max_h = max_h.max(r.height);
+            op_indices.push(r.op_index);
+
+            if r.encoding == BlockEncoding::BijoyAnsi {
+                encoding = BlockEncoding::BijoyAnsi;
+            }
+
+            if i > 0 {
+                let prev_r = &cluster[i - 1];
+                let gap = r.x - (prev_r.x + prev_r.width);
+                if gap > (font_size * 0.18)
+                    && !combined_text.ends_with(' ')
+                    && !r.text.starts_with(' ')
+                {
+                    combined_text.push(' ');
+                }
+            }
+            combined_text.push_str(&r.text);
+        }
+
+        let primary_op_index = *op_indices.first().unwrap_or(&0);
+        let block_w = (max_x - min_x).max(18.0);
+        let block_h = max_h.max(12.0);
+
+        blocks.push(PageTextBlock {
+            id: start_id,
+            content_id: Some(cid),
+            op_index: primary_op_index,
+            op_indices,
+            text: combined_text,
+            rect: [min_x, min_y, block_w, block_h],
+            font_size,
+            font_name,
+            encoding,
+        });
+
+        start_id += 1;
+    }
+
+    blocks
+}
+
+/// Extracts all text blocks with coordinates from a page's content streams,
+/// decoding /ToUnicode CMaps, resolving Bijoy ANSI to clean Unicode, and clustering lines.
 pub fn extract_page_text_blocks(doc: &LopdfDoc, page_index: usize) -> Vec<PageTextBlock> {
-    let mut blocks = Vec::new();
+    let mut all_blocks = Vec::new();
     let page_map = doc.get_pages();
     let page_num = (page_index + 1) as u32;
     let Some(&page_id) = page_map.get(&page_num) else {
-        return blocks;
+        return all_blocks;
     };
+
+    let (font_cmaps, font_base_names) = get_page_font_cmaps_and_names(doc, page_id);
 
     let content_ids: Vec<ObjectId> = {
         let Ok(page) = doc.get_object(page_id).and_then(Object::as_dict) else {
-            return blocks;
+            return all_blocks;
         };
         match page.get(b"Contents") {
             Ok(Object::Reference(id)) => vec![*id],
@@ -689,6 +891,8 @@ pub fn extract_page_text_blocks(doc: &LopdfDoc, page_index: usize) -> Vec<PageTe
                 let mut tm_y = 0.0;
                 let mut tlm_x = 0.0;
                 let mut tlm_y = 0.0;
+
+                let mut stream_runs = Vec::new();
 
                 for (op_idx, op) in content.operations.iter().enumerate() {
                     match op.operator.as_str() {
@@ -741,27 +945,40 @@ pub fn extract_page_text_blocks(doc: &LopdfDoc, page_index: usize) -> Vec<PageTe
                             } else {
                                 op.operands.first()
                             };
-                            if let Some(t_obj) = text_obj {
-                                let text_str = decode_pdf_string_object(t_obj);
-                                if !text_str.trim().is_empty() {
-                                    let width_est = (text_str.chars().count() as f32)
-                                        * (current_font_size * 0.55);
+                            if let Some(Object::String(bytes, _)) = text_obj {
+                                let cmap = font_cmaps.get(&current_font_name);
+                                let raw_decoded = decode_pdf_string_with_cmap(bytes, cmap);
+                                let base_name = font_base_names
+                                    .get(&current_font_name)
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("");
+
+                                let (final_text, encoding) =
+                                    if is_likely_bijoy(&raw_decoded, base_name) {
+                                        (bijoy_to_unicode(&raw_decoded), BlockEncoding::BijoyAnsi)
+                                    } else {
+                                        (raw_decoded, BlockEncoding::Unicode)
+                                    };
+
+                                if !final_text.trim().is_empty() {
+                                    let char_count = final_text.chars().count() as f32;
+                                    let width_est = char_count * (current_font_size * 0.55);
                                     let height_est = current_font_size * 1.25;
-                                    blocks.push(PageTextBlock {
-                                        id: block_id,
-                                        content_id: Some(cid),
+
+                                    stream_runs.push(RawTextRun {
+                                        cid,
                                         op_index: op_idx,
-                                        text: text_str,
-                                        rect: [
-                                            tm_x,
-                                            tm_y,
-                                            width_est.max(20.0),
-                                            height_est.max(12.0),
-                                        ],
+                                        text: final_text,
+                                        x: tm_x,
+                                        y: tm_y,
+                                        width: width_est.max(16.0),
+                                        height: height_est.max(12.0),
                                         font_size: current_font_size,
                                         font_name: current_font_name.clone(),
+                                        encoding,
                                     });
-                                    block_id += 1;
+
+                                    tm_x += width_est;
                                 }
                             }
                         }
@@ -769,9 +986,11 @@ pub fn extract_page_text_blocks(doc: &LopdfDoc, page_index: usize) -> Vec<PageTe
                             if let Some(arr_obj) = op.operands.first() {
                                 if let Ok(arr) = arr_obj.as_array() {
                                     let mut line_text = String::new();
+                                    let cmap = font_cmaps.get(&current_font_name);
+
                                     for item in arr {
                                         if let Object::String(ref b, _) = item {
-                                            let s = decode_pdf_bytes(b);
+                                            let s = decode_pdf_string_with_cmap(b, cmap);
                                             line_text.push_str(&s);
                                         } else if let Some(kern) = get_f32_from_obj(item) {
                                             if kern < -150.0 && !line_text.ends_with(' ') {
@@ -779,25 +998,38 @@ pub fn extract_page_text_blocks(doc: &LopdfDoc, page_index: usize) -> Vec<PageTe
                                             }
                                         }
                                     }
-                                    if !line_text.trim().is_empty() {
-                                        let width_est = (line_text.chars().count() as f32)
-                                            * (current_font_size * 0.55);
+
+                                    let base_name = font_base_names
+                                        .get(&current_font_name)
+                                        .map(|s| s.as_str())
+                                        .unwrap_or("");
+
+                                    let (final_text, encoding) =
+                                        if is_likely_bijoy(&line_text, base_name) {
+                                            (bijoy_to_unicode(&line_text), BlockEncoding::BijoyAnsi)
+                                        } else {
+                                            (line_text, BlockEncoding::Unicode)
+                                        };
+
+                                    if !final_text.trim().is_empty() {
+                                        let char_count = final_text.chars().count() as f32;
+                                        let width_est = char_count * (current_font_size * 0.55);
                                         let height_est = current_font_size * 1.25;
-                                        blocks.push(PageTextBlock {
-                                            id: block_id,
-                                            content_id: Some(cid),
+
+                                        stream_runs.push(RawTextRun {
+                                            cid,
                                             op_index: op_idx,
-                                            text: line_text,
-                                            rect: [
-                                                tm_x,
-                                                tm_y,
-                                                width_est.max(20.0),
-                                                height_est.max(12.0),
-                                            ],
+                                            text: final_text,
+                                            x: tm_x,
+                                            y: tm_y,
+                                            width: width_est.max(16.0),
+                                            height: height_est.max(12.0),
                                             font_size: current_font_size,
                                             font_name: current_font_name.clone(),
+                                            encoding,
                                         });
-                                        block_id += 1;
+
+                                        tm_x += width_est;
                                     }
                                 }
                             }
@@ -805,11 +1037,16 @@ pub fn extract_page_text_blocks(doc: &LopdfDoc, page_index: usize) -> Vec<PageTe
                         _ => {}
                     }
                 }
+
+                // Cluster runs into cohesive lines
+                let clustered = cluster_runs(stream_runs, block_id);
+                block_id += clustered.len();
+                all_blocks.extend(clustered);
             }
         }
     }
 
-    blocks
+    all_blocks
 }
 
 /// Replaces a targeted text block in a page.
@@ -820,6 +1057,12 @@ pub fn replace_text_block(
     block: &PageTextBlock,
     new_text: &str,
 ) -> Result<(), EditError> {
+    // Determine target encoding bytes
+    let encoded_bytes = match block.encoding {
+        BlockEncoding::BijoyAnsi => unicode_to_bijoy(new_text).into_bytes(),
+        _ => encode_pdf_string_bytes(new_text),
+    };
+
     // 1. Try exact in-place operator replacement if content_id is known
     if let Some(cid) = block.content_id {
         if let Ok(Object::Stream(ref mut stream)) = doc.get_object_mut(cid) {
@@ -827,42 +1070,79 @@ pub fn replace_text_block(
                 .decompressed_content()
                 .unwrap_or_else(|_| stream.content.clone());
             if let Ok(mut content) = lopdf::content::Content::decode(&data) {
-                if block.op_index < content.operations.len() {
-                    let op = &mut content.operations[block.op_index];
-                    let mut replaced = false;
-                    match op.operator.as_str() {
-                        "Tj" | "'" => {
-                            if let Some(Object::String(bytes, fmt)) = op.operands.first_mut() {
-                                *bytes = encode_pdf_string_bytes(new_text);
-                                *fmt = lopdf::StringFormat::Literal;
-                                replaced = true;
+                let target_ops = if !block.op_indices.is_empty() {
+                    block.op_indices.clone()
+                } else {
+                    vec![block.op_index]
+                };
+
+                let mut replaced_primary = false;
+
+                for (idx_in_cluster, &op_idx) in target_ops.iter().enumerate() {
+                    if op_idx < content.operations.len() {
+                        let op = &mut content.operations[op_idx];
+                        if idx_in_cluster == 0 {
+                            // Primary operation receives new text
+                            match op.operator.as_str() {
+                                "Tj" | "'" => {
+                                    if let Some(Object::String(bytes, fmt)) =
+                                        op.operands.first_mut()
+                                    {
+                                        *bytes = encoded_bytes.clone();
+                                        *fmt = lopdf::StringFormat::Literal;
+                                        replaced_primary = true;
+                                    }
+                                }
+                                "\"" => {
+                                    if let Some(Object::String(bytes, fmt)) = op.operands.get_mut(2)
+                                    {
+                                        *bytes = encoded_bytes.clone();
+                                        *fmt = lopdf::StringFormat::Literal;
+                                        replaced_primary = true;
+                                    }
+                                }
+                                "TJ" => {
+                                    if let Some(Object::Array(arr)) = op.operands.first_mut() {
+                                        arr.clear();
+                                        arr.push(Object::String(
+                                            encoded_bytes.clone(),
+                                            lopdf::StringFormat::Literal,
+                                        ));
+                                        replaced_primary = true;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        } else {
+                            // Secondary clustered operations are blanked out cleanly
+                            match op.operator.as_str() {
+                                "Tj" | "'" => {
+                                    if let Some(Object::String(bytes, _)) = op.operands.first_mut()
+                                    {
+                                        bytes.clear();
+                                    }
+                                }
+                                "\"" => {
+                                    if let Some(Object::String(bytes, _)) = op.operands.get_mut(2) {
+                                        bytes.clear();
+                                    }
+                                }
+                                "TJ" => {
+                                    if let Some(Object::Array(arr)) = op.operands.first_mut() {
+                                        arr.clear();
+                                    }
+                                }
+                                _ => {}
                             }
                         }
-                        "\"" => {
-                            if let Some(Object::String(bytes, fmt)) = op.operands.get_mut(2) {
-                                *bytes = encode_pdf_string_bytes(new_text);
-                                *fmt = lopdf::StringFormat::Literal;
-                                replaced = true;
-                            }
-                        }
-                        "TJ" => {
-                            if let Some(Object::Array(arr)) = op.operands.first_mut() {
-                                arr.clear();
-                                arr.push(Object::String(
-                                    encode_pdf_string_bytes(new_text),
-                                    lopdf::StringFormat::Literal,
-                                ));
-                                replaced = true;
-                            }
-                        }
-                        _ => {}
                     }
-                    if replaced {
-                        if let Ok(encoded) = content.encode() {
-                            stream.set_plain_content(encoded);
-                            stream.dict.remove(b"Filter");
-                            return Ok(());
-                        }
+                }
+
+                if replaced_primary {
+                    if let Ok(encoded) = content.encode() {
+                        stream.set_plain_content(encoded);
+                        stream.dict.remove(b"Filter");
+                        return Ok(());
                     }
                 }
             }
@@ -870,7 +1150,6 @@ pub fn replace_text_block(
     }
 
     // 2. Fall back to clean overlay text replacement:
-    // Mask underlying region with background rectangle and append replacement text
     replace_text_block_overlay(doc, page_index, block, new_text, true)
 }
 
@@ -1070,5 +1349,40 @@ mod tests {
             found_image_with_smask,
             "Expected image to contain an /SMask reference for alpha transparency"
         );
+    }
+
+    #[test]
+    fn test_extract_and_replace_bijoy_bengali_text() {
+        // "KZ cÖKvi ?" in Bijoy encodes "কত প্রকার ?"
+        let raw_stream = b"BT /F1 12 Tf 50 400 Td (KZ c\xD6Kvi ?) Tj ET";
+        let (mut doc, _) = create_test_page_doc(raw_stream);
+
+        let blocks = extract_page_text_blocks(&doc, 0);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].text, "কত প্রকার ?");
+        assert_eq!(blocks[0].encoding, BlockEncoding::BijoyAnsi);
+
+        // Edit text in Unicode and replace in-place
+        replace_text_block(&mut doc, 0, &blocks[0], "কত প্রকার ?").unwrap();
+
+        let updated_blocks = extract_page_text_blocks(&doc, 0);
+        assert_eq!(updated_blocks.len(), 1);
+        assert_eq!(updated_blocks[0].text, "কত প্রকার ?");
+    }
+
+    #[test]
+    fn test_spatial_clustering_of_fragmented_operators() {
+        // Fragmented operators on the same baseline: (Power Suppl) Tj and (y) Tj
+        let raw_stream = b"BT /F1 12 Tf 50 400 Td (Power Suppl) Tj (y) Tj ET";
+        let (doc, _) = create_test_page_doc(raw_stream);
+
+        let blocks = extract_page_text_blocks(&doc, 0);
+        assert_eq!(
+            blocks.len(),
+            1,
+            "Expected fragmented operators to cluster into a single line"
+        );
+        assert_eq!(blocks[0].text, "Power Supply");
+        assert_eq!(blocks[0].op_indices.len(), 2);
     }
 }

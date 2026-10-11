@@ -69,6 +69,7 @@ impl RustPdfApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let theme = AppTheme::load_persisted();
         theme.apply_to_egui(&cc.egui_ctx);
+        crate::fonts::setup_global_fonts(&cc.egui_ctx);
 
         let thumbnails = ThumbnailConfig::load_persisted();
         let recent = RecentFilesManager::load_persisted();

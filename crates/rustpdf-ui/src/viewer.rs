@@ -664,12 +664,23 @@ impl ViewerComponent {
                                 ui.horizontal(|ui| {
                                     ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
 
+                                    // Encoding Badge
+                                    if edit.target_block.encoding == rustpdf_edit::BlockEncoding::BijoyAnsi {
+                                        ui.label(
+                                            egui::RichText::new("BN/Bijoy")
+                                                .size(10.0)
+                                                .color(Color32::from_rgb(0, 120, 215))
+                                                .strong(),
+                                        )
+                                        .on_hover_text("Legacy Bengali Bijoy font detected. Changes will re-encode to native font glyphs.");
+                                    }
+
                                     // Text Edit Input
                                     let edit_resp = ui.add(
                                         TextEdit::singleline(&mut edit.current_text)
                                             .desired_width(
-                                                (edit.screen_rect.width() + 60.0)
-                                                    .clamp(160.0, 400.0),
+                                                (edit.screen_rect.width() + 80.0)
+                                                    .clamp(200.0, 520.0),
                                             )
                                             .font(egui::TextStyle::Body),
                                     );
