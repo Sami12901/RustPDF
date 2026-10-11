@@ -233,4 +233,3 @@ pub fn render_page_sync(
 
     Ok((width, height, rgba))
 }
-

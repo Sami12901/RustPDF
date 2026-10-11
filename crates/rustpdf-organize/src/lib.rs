@@ -205,10 +205,7 @@ pub fn move_page(
 }
 
 /// Reorders pages according to a sequence of page indices (e.g. `[2, 0, 1]`).
-pub fn reorder_pages(
-    doc: &mut LopdfDoc,
-    new_order: &[usize],
-) -> Result<(), OrganizeError> {
+pub fn reorder_pages(doc: &mut LopdfDoc, new_order: &[usize]) -> Result<(), OrganizeError> {
     let pages: Vec<ObjectId> = doc.page_iter().collect();
     let total = pages.len();
     if new_order.len() != total {
@@ -226,10 +223,7 @@ pub fn reorder_pages(
     set_document_page_order(doc, &reordered)
 }
 
-fn set_document_page_order(
-    doc: &mut LopdfDoc,
-    page_ids: &[ObjectId],
-) -> Result<(), OrganizeError> {
+fn set_document_page_order(doc: &mut LopdfDoc, page_ids: &[ObjectId]) -> Result<(), OrganizeError> {
     let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
         root_ref
     } else {
@@ -241,7 +235,9 @@ fn set_document_page_order(
         if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
             pages_ref
         } else {
-            return Err(OrganizeError::CombineFailed("Missing pages root".to_string()));
+            return Err(OrganizeError::CombineFailed(
+                "Missing pages root".to_string(),
+            ));
         }
     };
 
@@ -391,7 +387,10 @@ mod tests {
         // Move page 0 to index 2
         move_page(&mut doc, 0, 2).unwrap();
         let moved_order: Vec<ObjectId> = doc.page_iter().collect();
-        assert_eq!(moved_order, vec![initial_order[1], initial_order[2], initial_order[0]]);
+        assert_eq!(
+            moved_order,
+            vec![initial_order[1], initial_order[2], initial_order[0]]
+        );
 
         // Reorder back: [2, 0, 1]
         reorder_pages(&mut doc, &[2, 0, 1]).unwrap();
@@ -399,4 +398,3 @@ mod tests {
         assert_eq!(reordered, initial_order);
     }
 }
-

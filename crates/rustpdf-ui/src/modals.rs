@@ -763,7 +763,9 @@ impl ModalsComponent {
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Page:");
-                            ui.add(egui::DragValue::new(&mut state.target_page).range(1..=total_pages));
+                            ui.add(
+                                egui::DragValue::new(&mut state.target_page).range(1..=total_pages),
+                            );
                             ui.label(format!("of {}", total_pages));
                         });
                         ui.separator();
@@ -779,7 +781,10 @@ impl ModalsComponent {
                         });
 
                         ui.add_space(6.0);
-                        if ui.button(format!("➕ Add Note to Page {}", target_idx + 1)).clicked() {
+                        if ui
+                            .button(format!("➕ Add Note to Page {}", target_idx + 1))
+                            .clicked()
+                        {
                             if !state.new_annot_text.is_empty() {
                                 let annot = rustpdf_annot::Annotation {
                                     id: None,
@@ -819,9 +824,9 @@ impl ModalsComponent {
                                             a.contents.as_deref().unwrap_or("No content")
                                         ));
                                         if let Some(ref_id) = a.id {
-                                             if ui.button("🗑").clicked() {
-                                                 to_delete = Some(ref_id);
-                                             }
+                                            if ui.button("🗑").clicked() {
+                                                to_delete = Some(ref_id);
+                                            }
                                         }
                                     });
                                 }
@@ -852,7 +857,9 @@ impl ModalsComponent {
                         let total_pages = s.page_count().max(1);
                         ui.horizontal(|ui| {
                             ui.label("Stamp on Page:");
-                            ui.add(egui::DragValue::new(&mut state.target_page).range(1..=total_pages));
+                            ui.add(
+                                egui::DragValue::new(&mut state.target_page).range(1..=total_pages),
+                            );
                             ui.label(format!("of {}", total_pages));
                         });
                         ui.separator();
@@ -1053,7 +1060,13 @@ impl ModalsComponent {
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
                                 if ui
-                                    .button(RichText::new(format!("➕ Apply Text to Page {}", target_idx + 1)).strong())
+                                    .button(
+                                        RichText::new(format!(
+                                            "➕ Apply Text to Page {}",
+                                            target_idx + 1
+                                        ))
+                                        .strong(),
+                                    )
                                     .clicked()
                                 {
                                     let _ = s.add_text_to_page(
@@ -1082,7 +1095,10 @@ impl ModalsComponent {
                             });
 
                             if let Some(ref mut s) = session {
-                                if ui.button(format!("🔄 Replace Text in Page {}", target_idx + 1)).clicked() {
+                                if ui
+                                    .button(format!("🔄 Replace Text in Page {}", target_idx + 1))
+                                    .clicked()
+                                {
                                     let _ = s.search_and_replace_text(
                                         target_idx,
                                         &state.edit_find_query,
@@ -1138,7 +1154,13 @@ impl ModalsComponent {
                             if let Some(ref mut s) = session {
                                 let has_img = state.edit_image_path.is_some();
                                 if ui
-                                    .add_enabled(has_img, Button::new(format!("🖼 Insert Image onto Page {}", target_idx + 1)))
+                                    .add_enabled(
+                                        has_img,
+                                        Button::new(format!(
+                                            "🖼 Insert Image onto Page {}",
+                                            target_idx + 1
+                                        )),
+                                    )
                                     .clicked()
                                 {
                                     if let Some(ref img_p) = state.edit_image_path {
@@ -1161,7 +1183,10 @@ impl ModalsComponent {
 
                         EditContentTab::Watermark => {
                             ui.heading("Add Document Watermark");
-                            ui.checkbox(&mut state.apply_to_all_pages, "Apply to all pages in document");
+                            ui.checkbox(
+                                &mut state.apply_to_all_pages,
+                                "Apply to all pages in document",
+                            );
                             ui.horizontal(|ui| {
                                 ui.label("Watermark Text:");
                                 ui.text_edit_singleline(&mut state.edit_watermark_text);
@@ -1209,7 +1234,10 @@ impl ModalsComponent {
 
                         EditContentTab::HeaderFooter => {
                             ui.heading("Header & Footer");
-                            ui.checkbox(&mut state.apply_to_all_pages, "Apply to all pages in document");
+                            ui.checkbox(
+                                &mut state.apply_to_all_pages,
+                                "Apply to all pages in document",
+                            );
                             ui.label(
                                 "Use {n} for current page number and {total} for total page count.",
                             );
@@ -1250,7 +1278,10 @@ impl ModalsComponent {
 
                         EditContentTab::Background => {
                             ui.heading("Page Background Color");
-                            ui.checkbox(&mut state.apply_to_all_pages, "Apply to all pages in document");
+                            ui.checkbox(
+                                &mut state.apply_to_all_pages,
+                                "Apply to all pages in document",
+                            );
                             ui.label(
                                 "Adds a solid colored backdrop layer behind existing contents:",
                             );
@@ -1283,7 +1314,10 @@ impl ModalsComponent {
 
                         EditContentTab::Bates => {
                             ui.heading("Bates Numbering");
-                            ui.checkbox(&mut state.apply_to_all_pages, "Apply to all pages in document");
+                            ui.checkbox(
+                                &mut state.apply_to_all_pages,
+                                "Apply to all pages in document",
+                            );
                             ui.horizontal(|ui| {
                                 ui.label("Prefix:       ");
                                 ui.text_edit_singleline(&mut state.edit_bates_prefix);
@@ -1327,7 +1361,10 @@ impl ModalsComponent {
 
                             ui.add_space(8.0);
                             if let Some(ref mut s) = session {
-                                if ui.button(format!("🔗 Add Link to Page {}", target_idx + 1)).clicked() {
+                                if ui
+                                    .button(format!("🔗 Add Link to Page {}", target_idx + 1))
+                                    .clicked()
+                                {
                                     let rect = rustpdf_geom::Rect::new(72.0, 700.0, 300.0, 730.0);
                                     let _ = s.add_link(target_idx, rect, &state.edit_link_url);
                                     close_edit = true;

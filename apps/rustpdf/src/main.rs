@@ -23,6 +23,11 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "RustPdf — PDF Workbench",
         options,
-        Box::new(move |cc| Ok(Box::new(RustPdfApp::new_with_initial_file(cc, initial_file)))),
+        Box::new(move |cc| {
+            Ok(Box::new(RustPdfApp::new_with_initial_file(
+                cc,
+                initial_file,
+            )))
+        }),
     )
 }

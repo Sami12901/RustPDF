@@ -233,7 +233,6 @@ pub fn insert_image_to_page(
     let stream = Stream::new(img_dict, rgb_data);
     let img_id = doc.add_object(stream);
 
-
     let page_map = doc.get_pages();
     let page_num = (page_index + 1) as u32;
     let &page_id = page_map
@@ -1049,13 +1048,15 @@ mod tests {
         img_buf.put_pixel(1, 1, image::Rgba([0, 255, 0, 255]));
         let mut png_bytes = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut png_bytes);
-        img_buf.write_to(&mut cursor, image::ImageFormat::Png).unwrap();
+        img_buf
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .unwrap();
 
         insert_image_to_page(&mut doc, 0, &png_bytes, 50.0, 50.0, 100.0, 100.0).unwrap();
 
         // Verify that an image object and an SMask object were added
         let mut found_image_with_smask = false;
-        for (_, obj) in &doc.objects {
+        for obj in doc.objects.values() {
             if let Object::Stream(ref stream) = obj {
                 if let Ok(subtype) = stream.dict.get(b"Subtype").and_then(Object::as_name) {
                     if subtype == b"Image" && stream.dict.has(b"SMask") {
@@ -1071,4 +1072,3 @@ mod tests {
         );
     }
 }
-

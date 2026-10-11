@@ -157,9 +157,15 @@ pub fn export_html_doc(doc: &LopdfDoc, title: &str) -> String {
 
     for (i, page_text) in pages.iter().enumerate() {
         let page_num = i + 1;
-        html.push_str(&format!("<div class=\"page-card\" id=\"page-{}\">\n", page_num));
+        html.push_str(&format!(
+            "<div class=\"page-card\" id=\"page-{}\">\n",
+            page_num
+        ));
         html.push_str("<div class=\"page-header\">\n");
-        html.push_str(&format!("<span>{}</span><span>Page {}</span>\n", escaped_title, page_num));
+        html.push_str(&format!(
+            "<span>{}</span><span>Page {}</span>\n",
+            escaped_title, page_num
+        ));
         html.push_str("</div>\n");
         html.push_str("<div class=\"page-body\">");
         html.push_str(&escape_html(page_text));
@@ -180,7 +186,7 @@ fn escape_rtf(s: &str) -> String {
             '{' => out.push_str("\\{"),
             '}' => out.push_str("\\}"),
             '\n' => out.push_str("\\par\n"),
-            '\r' => {},
+            '\r' => {}
             _ if c.is_ascii() => out.push(c),
             _ => out.push_str(&format!("\\u{}?", c as u32)),
         }
@@ -194,18 +200,26 @@ pub fn export_rtf_doc(doc: &LopdfDoc, title: &str) -> String {
 
     let mut rtf = String::new();
     rtf.push_str("{\\rtf1\\ansi\\deff0\n");
-    rtf.push_str("{\\fonttbl{\\f0\\fnil\\fcharset0 Segoe UI;}{\\f1\\froman\\fcharset0 Times New Roman;}}\n");
+    rtf.push_str(
+        "{\\fonttbl{\\f0\\fnil\\fcharset0 Segoe UI;}{\\f1\\froman\\fcharset0 Times New Roman;}}\n",
+    );
     rtf.push_str("{\\colortbl ;\\red30\\green41\\blue59;\\red100\\green116\\blue139;}\n");
     rtf.push_str("\\viewkind4\\uc1\\pard\\cf1\\f0\\fs24\n");
 
     // Title Header
-    rtf.push_str(&format!("\\b\\fs32 {}\\b0\\fs24\\par\n\\par\n", escape_rtf(title)));
+    rtf.push_str(&format!(
+        "\\b\\fs32 {}\\b0\\fs24\\par\n\\par\n",
+        escape_rtf(title)
+    ));
 
     for (i, page_text) in pages.iter().enumerate() {
         if i > 0 {
             rtf.push_str("\\page\n");
         }
-        rtf.push_str(&format!("\\cf2\\fs18 Page {}\\cf1\\fs24\\par\\par\n", i + 1));
+        rtf.push_str(&format!(
+            "\\cf2\\fs18 Page {}\\cf1\\fs24\\par\\par\n",
+            i + 1
+        ));
         rtf.push_str(&escape_rtf(page_text));
         rtf.push_str("\\par\n");
     }
@@ -331,4 +345,3 @@ mod tests {
         assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
     }
 }
-

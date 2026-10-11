@@ -345,7 +345,9 @@ impl RustPdfApp {
         });
         if !self.sessions.is_empty() {
             if cycle_forward {
-                let next = self.active_tab.map_or(0, |curr| (curr + 1) % self.sessions.len());
+                let next = self
+                    .active_tab
+                    .map_or(0, |curr| (curr + 1) % self.sessions.len());
                 self.active_tab = Some(next);
                 self.active_workspace = ActiveWorkspace::Viewer;
             } else if cycle_backward {
@@ -867,7 +869,7 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("Word Document", &["doc", "docx", "rtf"])
-                                        .set_file_name(&format!("{}.doc", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!("{}.doc", s.display_name.trim_end_matches(".pdf")))
                                         .save_file()
                                     {
                                         let doc = rustpdf_export::export_word_doc(s.cos_doc.inner(), &s.display_name);
@@ -882,7 +884,7 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("Rich Text Format", &["rtf"])
-                                        .set_file_name(&format!("{}.rtf", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!("{}.rtf", s.display_name.trim_end_matches(".pdf")))
                                         .save_file()
                                     {
                                         let rtf = rustpdf_export::export_rtf_doc(s.cos_doc.inner(), &s.display_name);
@@ -897,7 +899,7 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("HTML Web Page", &["html", "htm"])
-                                        .set_file_name(&format!("{}.html", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!("{}.html", s.display_name.trim_end_matches(".pdf")))
                                         .save_file()
                                     {
                                         let html = rustpdf_export::export_html_doc(s.cos_doc.inner(), &s.display_name);
@@ -912,7 +914,7 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("Plain Text", &["txt"])
-                                        .set_file_name(&format!("{}.txt", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!("{}.txt", s.display_name.trim_end_matches(".pdf")))
                                         .save_file()
                                     {
                                         let text = rustpdf_export::export_plain_text_doc(s.cos_doc.inner());
@@ -927,7 +929,7 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("CSV Spreadsheet", &["csv"])
-                                        .set_file_name(&format!("{}.csv", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!("{}.csv", s.display_name.trim_end_matches(".pdf")))
                                         .save_file()
                                     {
                                         let csv = rustpdf_export::export_csv_doc(s.cos_doc.inner());
@@ -966,7 +968,7 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("PNG Image", &["png"])
-                                        .set_file_name(&format!("{}_page_{}.png", s.display_name.trim_end_matches(".pdf"), curr + 1))
+                                        .set_file_name(format!("{}_page_{}.png", s.display_name.trim_end_matches(".pdf"), curr + 1))
                                         .save_file()
                                     {
                                         match rustpdf_export::export_page_png(&s.raw_bytes, curr, 2.0) {

@@ -22,7 +22,9 @@ fn test_full_document_lifecycle() {
     assert_eq!(session.page_count(), 2);
 
     // 4. Insert a new blank page at index 1
-    session.insert_blank_page(1, 595.0, 842.0).expect("insert blank A4");
+    session
+        .insert_blank_page(1, 595.0, 842.0)
+        .expect("insert blank A4");
     assert_eq!(session.page_count(), 3);
 
     // 5. Test Undo: revert insert blank
@@ -52,7 +54,8 @@ fn test_combine_and_split_pipeline() {
 
     // Combine 2 + 3 = 5 pages
     let combined_bytes = combine_documents(&[doc_a, doc_b]).expect("combine");
-    let combined_session = DocumentSession::open_mem(combined_bytes.clone(), None).expect("open combined");
+    let combined_session =
+        DocumentSession::open_mem(combined_bytes.clone(), None).expect("open combined");
     assert_eq!(combined_session.page_count(), 5);
 
     // Split 5 pages every 2 pages -> chunks of [2, 2, 1]

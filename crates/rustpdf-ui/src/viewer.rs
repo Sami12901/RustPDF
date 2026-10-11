@@ -42,11 +42,11 @@ impl StampKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditTool {
-    Select,   // Select & Edit existing text bounding boxes
-    Hand,     // Hand / Pan document
-    AddText,  // Click on page to place a new text box
-    AddImage, // Click on page to embed an image
-    Draw,     // Ink / Drawing
+    Select,           // Select & Edit existing text bounding boxes
+    Hand,             // Hand / Pan document
+    AddText,          // Click on page to place a new text box
+    AddImage,         // Click on page to embed an image
+    Draw,             // Ink / Drawing
     Stamp(StampKind), // Click on page to place a Fill & Sign stamp
 }
 
@@ -783,23 +783,39 @@ impl ViewerComponent {
                 if resp.clicked() {
                     if let Some(pointer_pos) = resp.interact_pointer_pos() {
                         let pt_x = ((pointer_pos.x - rect.min.x) / rect.width()) * page_info.width;
-                        let pt_y = ((rect.max.y - pointer_pos.y) / rect.height()) * page_info.height;
+                        let pt_y =
+                            ((rect.max.y - pointer_pos.y) / rect.height()) * page_info.height;
 
                         let (annot_type, contents, annot_rect) = match stamp_kind {
                             StampKind::Checkmark => (
                                 rustpdf_annot::AnnotType::Text,
                                 "✓".to_string(),
-                                rustpdf_geom::Rect::new(pt_x - 12.0, pt_y - 12.0, pt_x + 12.0, pt_y + 12.0),
+                                rustpdf_geom::Rect::new(
+                                    pt_x - 12.0,
+                                    pt_y - 12.0,
+                                    pt_x + 12.0,
+                                    pt_y + 12.0,
+                                ),
                             ),
                             StampKind::Cross => (
                                 rustpdf_annot::AnnotType::Text,
                                 "✕".to_string(),
-                                rustpdf_geom::Rect::new(pt_x - 12.0, pt_y - 12.0, pt_x + 12.0, pt_y + 12.0),
+                                rustpdf_geom::Rect::new(
+                                    pt_x - 12.0,
+                                    pt_y - 12.0,
+                                    pt_x + 12.0,
+                                    pt_y + 12.0,
+                                ),
                             ),
                             StampKind::Dot => (
                                 rustpdf_annot::AnnotType::Circle,
                                 "●".to_string(),
-                                rustpdf_geom::Rect::new(pt_x - 10.0, pt_y - 10.0, pt_x + 10.0, pt_y + 10.0),
+                                rustpdf_geom::Rect::new(
+                                    pt_x - 10.0,
+                                    pt_y - 10.0,
+                                    pt_x + 10.0,
+                                    pt_y + 10.0,
+                                ),
                             ),
                             StampKind::Line => (
                                 rustpdf_annot::AnnotType::Line,
@@ -809,12 +825,22 @@ impl ViewerComponent {
                             StampKind::Date => (
                                 rustpdf_annot::AnnotType::Text,
                                 chrono::Local::now().format("%Y-%m-%d").to_string(),
-                                rustpdf_geom::Rect::new(pt_x, pt_y - 8.0, pt_x + 100.0, pt_y + 16.0),
+                                rustpdf_geom::Rect::new(
+                                    pt_x,
+                                    pt_y - 8.0,
+                                    pt_x + 100.0,
+                                    pt_y + 16.0,
+                                ),
                             ),
                             StampKind::Signature => (
                                 rustpdf_annot::AnnotType::Text,
                                 "Signature".to_string(),
-                                rustpdf_geom::Rect::new(pt_x, pt_y - 12.0, pt_x + 150.0, pt_y + 20.0),
+                                rustpdf_geom::Rect::new(
+                                    pt_x,
+                                    pt_y - 12.0,
+                                    pt_x + 150.0,
+                                    pt_y + 20.0,
+                                ),
                             ),
                         };
 
