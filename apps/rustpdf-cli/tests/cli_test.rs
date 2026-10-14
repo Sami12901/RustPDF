@@ -227,5 +227,11 @@ fn test_cli_refuses_to_overwrite_source_pdf() {
     assert!(String::from_utf8_lossy(&combine.stderr).contains("Refusing to overwrite"));
 
     assert_eq!(std::fs::read(&input).unwrap(), original);
-    assert_eq!(lopdf::Document::load_mem(&original).unwrap().get_pages().len(), 2);
+    assert_eq!(
+        lopdf::Document::load_mem(&original)
+            .unwrap()
+            .get_pages()
+            .len(),
+        2
+    );
 }
