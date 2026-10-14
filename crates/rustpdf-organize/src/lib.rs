@@ -682,8 +682,18 @@ mod tests {
             .unwrap()
             .as_array()
             .unwrap();
-        assert_eq!(first_box[2].as_float().unwrap_or_else(|_| first_box[2].as_i64().unwrap() as f32), 300.0);
-        assert_eq!(second_box[2].as_float().unwrap_or_else(|_| second_box[2].as_i64().unwrap() as f32), 100.0);
+        assert_eq!(
+            first_box[2]
+                .as_float()
+                .unwrap_or_else(|_| first_box[2].as_i64().unwrap() as f32),
+            300.0
+        );
+        assert_eq!(
+            second_box[2]
+                .as_float()
+                .unwrap_or_else(|_| second_box[2].as_i64().unwrap() as f32),
+            100.0
+        );
     }
 
     #[test]
