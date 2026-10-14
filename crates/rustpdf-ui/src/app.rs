@@ -205,7 +205,10 @@ impl RustPdfApp {
                 self.notify_success(format!("{action} completed."));
                 self.invalidate_active_document_views();
             }
-            Some(Ok(false)) => self.notify_error(format!("Nothing to {action.to_lowercase()}.")),
+            Some(Ok(false)) => {
+                let action_name = action.to_lowercase();
+                self.notify_error(format!("Nothing to {action_name}."));
+            }
             Some(Err(error)) => self.notify_error(format!("{action} failed: {error}")),
             None => self.notify_error("Open a PDF before using undo/redo."),
         }
@@ -487,7 +490,7 @@ impl RustPdfApp {
 
     fn handle_shortcuts(&mut self, ctx: &Context) {
         // Avoid intercepting shortcuts intended for active text-editing controls.
-        if ctx.wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() {
             return;
         }
 
@@ -1693,9 +1696,9 @@ impl App for RustPdfApp {
                                             rustpdf_edit::CompressionResult,
                                             String,
                                         > {
-                                            let mut document = lopdf::Document::load_mem(&source_bytes)
+                                            let mut document = rustpdf_cos::CosDoc::load_mem(&source_bytes)
                                                 .map_err(|error| format!("Could not parse source PDF: {error}"))?;
-                                            let stats = rustpdf_edit::compress_document(&mut document)
+                                            let stats = rustpdf_edit::compress_document(document.inner_mut())
                                                 .map_err(|error| format!("Compression failed: {error}"))?;
                                             let mut output = Vec::new();
                                             document
