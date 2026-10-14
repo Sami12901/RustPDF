@@ -177,7 +177,9 @@ fn parse_page_selection(input: &str, total_pages: usize) -> Result<Vec<usize>, S
 
         let (start, end) = if let Some((start, end)) = token.split_once('-') {
             if end.contains('-') {
-                return Err(format!("Invalid page range '{token}'. Use a form such as 2-5."));
+                return Err(format!(
+                    "Invalid page range '{token}'. Use a form such as 2-5."
+                ));
             }
             let start = start
                 .trim()
@@ -199,7 +201,9 @@ fn parse_page_selection(input: &str, total_pages: usize) -> Result<Vec<usize>, S
             return Err("Page numbers start at 1, not 0.".to_string());
         }
         if start > end {
-            return Err(format!("Invalid page range '{token}': start must not exceed end."));
+            return Err(format!(
+                "Invalid page range '{token}': start must not exceed end."
+            ));
         }
         if end > total_pages {
             return Err(format!(
@@ -318,7 +322,9 @@ impl ModalsComponent {
                                     is_error: false,
                                 },
                                 Err(error) => ModalAction::Notice {
-                                    message: format!("Defaults applied but could not be saved: {error}"),
+                                    message: format!(
+                                        "Defaults applied but could not be saved: {error}"
+                                    ),
                                     is_error: true,
                                 },
                             });
@@ -1616,7 +1622,6 @@ impl ModalsComponent {
         action
     }
 }
-
 
 #[cfg(test)]
 mod page_selection_tests {
