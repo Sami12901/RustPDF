@@ -339,7 +339,13 @@ mod tests {
     fn reset_field_restores_default_value() {
         let (mut doc, ids) = make_form_doc(&[("editable", "current", false)]);
         reset_field(&mut doc, "editable").unwrap();
-        let value = doc.get_object(ids[0]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        let value = doc
+            .get_object(ids[0])
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"V")
+            .unwrap();
         assert_eq!(to_string_lossy(value).as_deref(), Some("default"));
     }
 
