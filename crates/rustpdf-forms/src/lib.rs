@@ -46,10 +46,7 @@ struct InheritedFieldAttributes {
     options: Option<Object>,
 }
 
-fn field_children(
-    doc: &LopdfDoc,
-    field_dict: &lopdf::Dictionary,
-) -> Vec<ObjectId> {
+fn field_children(doc: &LopdfDoc, field_dict: &lopdf::Dictionary) -> Vec<ObjectId> {
     let kids = match field_dict.get(b"Kids").ok() {
         Some(Object::Array(kids)) => kids.clone(),
         Some(Object::Reference(id)) => doc
@@ -63,7 +60,10 @@ fn field_children(
     kids.into_iter()
         .filter_map(|child| child.as_reference().ok().copied())
         .filter(|child_id| {
-            let Ok(child) = doc.get_object(*child_id).and_then(|object| object.as_dict()) else {
+            let Ok(child) = doc
+                .get_object(*child_id)
+                .and_then(|object| object.as_dict())
+            else {
                 return false;
             };
 
@@ -147,14 +147,7 @@ fn collect_fields_recursive(
             options,
         };
         for child_id in children {
-            collect_fields_recursive(
-                doc,
-                child_id,
-                &full_name,
-                &next_inherited,
-                visited,
-                output,
-            );
+            collect_fields_recursive(doc, child_id, &full_name, &next_inherited, visited, output);
         }
         return;
     }
@@ -231,20 +224,24 @@ pub fn get_form_fields(doc: &LopdfDoc) -> Vec<FormField> {
     };
 
     let acro_form = match catalog.get(b"AcroForm").ok() {
-        Some(Object::Reference(id)) => match doc.get_object(*id).and_then(|object| object.as_dict()) {
-            Ok(dict) => dict,
-            Err(_) => return Vec::new(),
-        },
+        Some(Object::Reference(id)) => {
+            match doc.get_object(*id).and_then(|object| object.as_dict()) {
+                Ok(dict) => dict,
+                Err(_) => return Vec::new(),
+            }
+        }
         Some(Object::Dictionary(dict)) => dict,
         _ => return Vec::new(),
     };
 
     let fields = match acro_form.get(b"Fields").ok() {
         Some(Object::Array(fields)) => fields.clone(),
-        Some(Object::Reference(id)) => match doc.get_object(*id).and_then(|object| object.as_array()) {
-            Ok(fields) => fields.clone(),
-            Err(_) => return Vec::new(),
-        },
+        Some(Object::Reference(id)) => {
+            match doc.get_object(*id).and_then(|object| object.as_array()) {
+                Ok(fields) => fields.clone(),
+                Err(_) => return Vec::new(),
+            }
+        }
         _ => return Vec::new(),
     };
 
@@ -254,14 +251,7 @@ pub fn get_form_fields(doc: &LopdfDoc) -> Vec<FormField> {
 
     for field in fields {
         if let Ok(field_id) = field.as_reference() {
-            collect_fields_recursive(
-                doc,
-                *field_id,
-                "",
-                &inherited,
-                &mut visited,
-                &mut output,
-            );
+            collect_fields_recursive(doc, *field_id, "", &inherited, &mut visited, &mut output);
         }
     }
 
@@ -507,12 +497,21 @@ mod tests {
         let mut doc = LopdfDoc::with_version("1.7");
 
         let mut child = lopdf::Dictionary::new();
-        child.set(b"T", Object::String(b"name".to_vec(), StringFormat::Literal));
-        child.set(b"V", Object::String(b"Sami".to_vec(), StringFormat::Literal));
+        child.set(
+            b"T",
+            Object::String(b"name".to_vec(), StringFormat::Literal),
+        );
+        child.set(
+            b"V",
+            Object::String(b"Sami".to_vec(), StringFormat::Literal),
+        );
         let child_id = doc.add_object(child);
 
         let mut parent = lopdf::Dictionary::new();
-        parent.set(b"T", Object::String(b"customer".to_vec(), StringFormat::Literal));
+        parent.set(
+            b"T",
+            Object::String(b"customer".to_vec(), StringFormat::Literal),
+        );
         parent.set(b"FT", Object::Name(b"Tx".to_vec()));
         parent.set(b"Ff", Object::Integer(1));
         parent.set(b"Kids", Object::Array(vec![Object::Reference(child_id)]));
@@ -541,8 +540,10 @@ mod tests {
 
     #[test]
     fn form_data_import_is_atomic_when_any_field_is_invalid() {
-        let (mut doc, ids) =
-            make_form_doc(&[("editable", "original", false), ("locked", "protected", true)]);
+        let (mut doc, ids) = make_form_doc(&[
+            ("editable", "original", false),
+            ("locked", "protected", true),
+        ]);
 
         assert!(matches!(
             import_form_data_json(
@@ -552,8 +553,20 @@ mod tests {
             Err(FormError::ReadOnlyField(name)) if name == "locked"
         ));
 
-        let first = doc.get_object(ids[0]).unwrap().as_dict().unwrap().get(b"V").unwrap();
-        let second = doc.get_object(ids[1]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        let first = doc
+            .get_object(ids[0])
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"V")
+            .unwrap();
+        let second = doc
+            .get_object(ids[1])
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"V")
+            .unwrap();
         assert_eq!(to_string_lossy(first).as_deref(), Some("original"));
         assert_eq!(to_string_lossy(second).as_deref(), Some("protected"));
     }
