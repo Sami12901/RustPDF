@@ -553,7 +553,7 @@ mod tests {
         doc.save_to(&mut bytes).unwrap();
 
         assert!(matches!(
-            split_document(&bytes, SplitRule::Ranges(vec![0..0])),
+            split_document(&bytes, SplitRule::Ranges(std::iter::once(0..0).collect())),
             Err(OrganizeError::InvalidPageRange {
                 start: 0,
                 end: 0,
@@ -561,7 +561,7 @@ mod tests {
             })
         ));
         assert!(matches!(
-            split_document(&bytes, SplitRule::Ranges(vec![0..3])),
+            split_document(&bytes, SplitRule::Ranges(std::iter::once(0..3).collect())),
             Err(OrganizeError::InvalidPageRange {
                 start: 0,
                 end: 3,
