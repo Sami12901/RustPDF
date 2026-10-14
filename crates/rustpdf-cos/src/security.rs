@@ -95,6 +95,8 @@ impl DocumentPermissions {
 pub enum SecurityError {
     #[error("Standard PDF encryption (ISO 32000-1 §7.6) is currently unsupported. Fake/unencrypted dictionary injection is disabled to ensure file integrity and avoid false security.")]
     EncryptionUnsupported,
+    #[error("Removing PDF protection requires decrypting the document with its password. Safe decryption is not implemented; the document was left unchanged.")]
+    DecryptionUnsupported,
 }
 
 /// Checks if full ISO 32000 cryptographic encryption is supported.
@@ -117,15 +119,13 @@ pub fn protect_document(
     Err(SecurityError::EncryptionUnsupported)
 }
 
-/// Removes encryption protection dictionary from document trailer.
-pub fn remove_protection(doc: &mut LopdfDoc) {
-    if let Ok(Object::Reference(id)) = doc.trailer.get(b"Encrypt") {
-        let enc_id = *id;
-        doc.trailer.remove(b"Encrypt");
-        doc.objects.remove(&enc_id);
-    } else {
-        doc.trailer.remove(b"Encrypt");
-    }
+/// Refuses to remove encryption metadata without actually decrypting PDF objects.
+///
+/// Simply deleting the /Encrypt trailer entry leaves encrypted streams and strings
+/// unreadable and can corrupt the document. A complete Standard Security Handler
+/// is required before decryption can be offered safely.
+pub fn remove_protection(_doc: &mut LopdfDoc) -> Result<(), SecurityError> {
+    Err(SecurityError::DecryptionUnsupported)
 }
 
 /// Inspects encryption state and permissions from document trailer.
@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inspect_and_remove_protection() {
+    fn test_remove_protection_refuses_to_drop_encryption_metadata() {
         let mut doc = LopdfDoc::with_version("1.7");
         let mut enc = lopdf::Dictionary::new();
         enc.set(b"Filter", Object::Name(b"Standard".to_vec()));
@@ -189,7 +189,11 @@ mod tests {
         assert!(!detected.allow_print);
         assert!(!detected.allow_copy);
 
-        remove_protection(&mut doc);
-        assert!(inspect_protection(&doc).is_none());
+        assert_eq!(
+            remove_protection(&mut doc),
+            Err(SecurityError::DecryptionUnsupported)
+        );
+        assert!(doc.trailer.get(b"Encrypt").is_ok());
+        assert!(inspect_protection(&doc).is_some());
     }
 }

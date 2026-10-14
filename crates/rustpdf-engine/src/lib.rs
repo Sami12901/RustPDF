@@ -87,11 +87,27 @@ impl DocumentSession {
         old_bytes: Vec<u8>,
     ) -> Result<(), EngineError> {
         let mut new_bytes = Vec::new();
-        self.cos_doc.save_to(&mut new_bytes)?;
+        if let Err(error) = self.cos_doc.save_to(&mut new_bytes) {
+            // Mutations may have been applied before serialization failed.
+            // Rebuild the document from its last committed bytes so the
+            // in-memory document cannot diverge from raw_bytes/history.
+            self.cos_doc = CosDoc::load_mem(&old_bytes)?;
+            return Err(error.into());
+        }
 
+        let new_model = match DocumentModel::from_cos(&self.cos_doc, new_bytes.len()) {
+            Ok(model) => model,
+            Err(error) => {
+                self.cos_doc = CosDoc::load_mem(&old_bytes)?;
+                return Err(error.into());
+            }
+        };
+
+        // Only publish the transaction after serialization and model rebuilding
+        // both succeeded. Failures above leave metadata, bytes, and history intact.
         self.history.push(description, old_bytes, new_bytes.clone());
         self.raw_bytes = Arc::new(new_bytes);
-        self.model = DocumentModel::from_cos(&self.cos_doc, self.raw_bytes.len())?;
+        self.model = new_model;
         self.is_dirty = true;
         Ok(())
     }
@@ -261,11 +277,9 @@ impl DocumentSession {
         Ok(())
     }
 
-    /// Removes password protection and restrictions.
+    /// Refuses to remove encryption metadata until safe PDF decryption is implemented.
     pub fn remove_protection(&mut self) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_cos::security::remove_protection(self.cos_doc.inner_mut());
-        self.commit_in_memory_change("Remove protection", old_bytes)?;
+        rustpdf_cos::security::remove_protection(self.cos_doc.inner_mut())?;
         Ok(())
     }
 

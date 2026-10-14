@@ -947,13 +947,10 @@ impl App for RustPdfApp {
                                 }
                             }
                             crate::tools_panel::ToolAction::ExtractPages => {
-                                if let Some(s) = self.active_session_mut() {
-                                    if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("PDF", &["pdf"])
-                                        .save_file()
-                                    {
-                                        let _ = s.save_to(&path);
-                                    }
+                                if self.active_tab.is_some() {
+                                    self.modals_state.show_extract = true;
+                                } else {
+                                    self.notify_error("Open a PDF before extracting pages.");
                                 }
                             }
                             crate::tools_panel::ToolAction::EditTextAndImages => {
@@ -1203,12 +1200,9 @@ impl App for RustPdfApp {
                                 self.modals_state.show_annotations_manager = true;
                             }
                             crate::tools_panel::ToolAction::ScanOcr => {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Document / Image", &["pdf", "png", "jpg", "jpeg"])
-                                    .pick_file()
-                                {
-                                    self.open_file(path);
-                                }
+                                self.notify_error(
+                                    "OCR is not available yet. No document was opened or modified.",
+                                );
                             }
                             crate::tools_panel::ToolAction::ProtectPdf
                             | crate::tools_panel::ToolAction::OpenProtectDialog => {
@@ -1216,7 +1210,7 @@ impl App for RustPdfApp {
                             }
                             crate::tools_panel::ToolAction::RedactPdf => {
                                 // Priority 5: Distinguish Redaction from Cover-up
-                                log::warn!("Redaction is unsupported in v0.4.0. True sanitization is planned for a future release.");
+                                self.notify_error("Secure redaction is not available yet; no document content was changed.");
                             }
                             crate::tools_panel::ToolAction::CompressPdf => {
                                 if let Some(s) = self.active_session_mut() {
@@ -1256,31 +1250,31 @@ impl App for RustPdfApp {
                                 self.notify_success("Stamp tool active: click anywhere on page to stamp");
                             }
                             crate::tools_panel::ToolAction::UseCertificate => {
-                                log::warn!("Digital certificate signing is planned for a future release.");
+                                self.notify_error("Digital certificate signing is not available yet.");
                             }
                             crate::tools_panel::ToolAction::PrintProduction => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Print-production tools are not available yet.");
                             }
                             crate::tools_panel::ToolAction::MeasureObjects => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Object measurement is not available yet.");
                             }
                             crate::tools_panel::ToolAction::CompareFiles => {
-                                log::warn!("File comparison is planned for a future release.");
+                                self.notify_error("File comparison is not available yet.");
                             }
                             crate::tools_panel::ToolAction::GuidedActions => {
                                 self.active_workspace = ActiveWorkspace::Home;
                             }
                             crate::tools_panel::ToolAction::Accessibility => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Accessibility auditing is not available yet.");
                             }
                             crate::tools_panel::ToolAction::PdfStandards => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Automated PDF standards validation is not available yet.");
                             }
                             crate::tools_panel::ToolAction::SearchIndex => {
                                 self.search_state.open();
                             }
                             crate::tools_panel::ToolAction::JavaScript => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Embedded PDF JavaScript is deliberately not executed for security.");
                             }
                             crate::tools_panel::ToolAction::AddStickyNote => {
                                 self.modals_state.show_annotations_manager = true;
@@ -1314,8 +1308,11 @@ impl App for RustPdfApp {
                                 }
                             }
                             crate::tools_panel::ToolAction::RemoveProtection => {
-                                if let Some(s) = self.active_session_mut() {
-                                    let _ = s.remove_protection();
+                                let result = self.active_session_mut().map(|s| s.remove_protection());
+                                match result {
+                                    Some(Ok(())) => self.notify_success("PDF protection removed."),
+                                    Some(Err(error)) => self.notify_error(error.to_string()),
+                                    None => self.notify_error("Open a PDF before removing protection."),
                                 }
                             }
                             crate::tools_panel::ToolAction::OpenLayersDialog => {
@@ -1517,53 +1514,59 @@ impl App for RustPdfApp {
                         .unwrap_or(0);
                     let first_selected = self.organizer_state.selected_pages.iter().next().copied();
 
-                    if let Some(session) =
+                    let operation_result = if let Some(session) =
                         self.active_tab.and_then(|idx| self.sessions.get_mut(idx))
                     {
                         let doc_id = session.id;
-                        match act {
+                        let result = match act {
                             OrganizerAction::Rotate(deg) => {
-                                let _ = session.rotate_pages(&selected_pages, deg);
+                                session.rotate_pages(&selected_pages, deg)
                             }
-                            OrganizerAction::Delete => {
-                                let _ = session.delete_pages(&selected_pages);
-                            }
+                            OrganizerAction::Delete => session.delete_pages(&selected_pages),
                             OrganizerAction::InsertBlank => {
-                                let _ = session.insert_blank_page(max_selected + 1, 612.0, 792.0);
+                                session.insert_blank_page(max_selected + 1, 612.0, 792.0)
                             }
-                            OrganizerAction::Duplicate => {
-                                if let Some(first) = first_selected {
-                                    let _ = session.duplicate_page(first);
-                                }
-                            }
+                            OrganizerAction::Duplicate => first_selected
+                                .map(|first| session.duplicate_page(first))
+                                .unwrap_or(Ok(())),
                             OrganizerAction::MoveLeft => {
-                                if let Some(first) = first_selected {
-                                    if first > 0 {
-                                        let _ = session.move_page(first, first - 1);
-                                        self.organizer_state.select_single(first - 1);
-                                    }
+                                if let Some(first) = first_selected.filter(|first| *first > 0) {
+                                    session.move_page(first, first - 1)
+                                } else {
+                                    Ok(())
                                 }
                             }
                             OrganizerAction::MoveRight => {
-                                if let Some(first) = first_selected {
-                                    if first + 1 < session.page_count() {
-                                        let _ = session.move_page(first, first + 1);
-                                        self.organizer_state.select_single(first + 1);
-                                    }
+                                if let Some(first) =
+                                    first_selected.filter(|first| *first + 1 < session.page_count())
+                                {
+                                    session.move_page(first, first + 1)
+                                } else {
+                                    Ok(())
                                 }
                             }
-                            OrganizerAction::Undo => {
-                                let _ = session.undo();
-                            }
-                            OrganizerAction::Redo => {
-                                let _ = session.redo();
-                            }
-                        }
+                            OrganizerAction::Undo => session.undo().map(|_| ()),
+                            OrganizerAction::Redo => session.redo().map(|_| ()),
+                        };
                         self.organizer_state.invalidate_doc(doc_id);
                         self.viewer_state.invalidate_doc(doc_id);
+                        Some(result)
+                    } else {
+                        None
+                    };
+
+                    let operation_succeeded = matches!(operation_result.as_ref(), Some(Ok(())));
+                    match operation_result {
+                        Some(Ok(())) => self.notify_success("Page operation completed."),
+                        Some(Err(error)) => {
+                            self.notify_error(format!("Page operation failed: {error}"))
+                        }
+                        None => {
+                            self.notify_error("Open a PDF before using page organization tools.")
+                        }
                     }
 
-                    if matches!(act, OrganizerAction::Delete) {
+                    if matches!(act, OrganizerAction::Delete) && operation_succeeded {
                         self.organizer_state.selected_pages.clear();
                     }
                 }
@@ -1583,33 +1586,99 @@ impl App for RustPdfApp {
         if let Some(act) = modal_action {
             match act {
                 ModalAction::Combine(inputs) => {
-                    let mut buffers = Vec::new();
-                    for p in inputs {
-                        if let Ok(b) = std::fs::read(&p) {
-                            buffers.push(b);
+                    let result = (|| -> Result<DocumentSession, String> {
+                        if inputs.is_empty() {
+                            return Err("Select at least one PDF to combine.".to_string());
                         }
-                    }
-                    if let Ok(merged) = rustpdf_organize::combine_documents(&buffers) {
-                        if let Ok(session) = DocumentSession::open_mem(merged, None) {
+
+                        let mut buffers = Vec::with_capacity(inputs.len());
+                        for path in &inputs {
+                            let bytes = std::fs::read(path).map_err(|error| {
+                                format!("Failed to read '{}': {error}", path.display())
+                            })?;
+                            buffers.push(bytes);
+                        }
+
+                        let merged = rustpdf_organize::combine_documents(&buffers)
+                            .map_err(|error| format!("Failed to combine PDFs: {error}"))?;
+                        DocumentSession::open_mem(merged, None)
+                            .map_err(|error| format!("Failed to open combined PDF: {error}"))
+                    })();
+
+                    match result {
+                        Ok(session) => {
                             self.sessions.push(session);
                             self.active_tab = Some(self.sessions.len() - 1);
                             self.active_workspace = ActiveWorkspace::Viewer;
+                            self.notify_success("PDF files combined successfully.");
                         }
+                        Err(error) => self.notify_error(error),
                     }
                 }
                 ModalAction::Split(n, out_dir) => {
-                    if let Some(session) = self.active_session_mut() {
-                        if let Ok(chunks) = rustpdf_organize::split_document(
+                    let result = (|| -> Result<usize, String> {
+                        let session = self
+                            .active_session_mut()
+                            .ok_or_else(|| "Open a PDF before splitting it.".to_string())?;
+
+                        let chunks = rustpdf_organize::split_document(
                             &session.raw_bytes,
                             rustpdf_organize::SplitRule::EveryN(n),
-                        ) {
-                            let _ = std::fs::create_dir_all(&out_dir);
-                            for (i, chunk) in chunks.iter().enumerate() {
-                                let part_path =
-                                    out_dir.join(format!("split_part_{:03}.pdf", i + 1));
-                                let _ = rustpdf_edit::save_atomic(&part_path, chunk);
-                            }
+                        )
+                        .map_err(|error| format!("Failed to split PDF: {error}"))?;
+
+                        std::fs::create_dir_all(&out_dir).map_err(|error| {
+                            format!(
+                                "Failed to create output directory '{}': {error}",
+                                out_dir.display()
+                            )
+                        })?;
+
+                        for (i, chunk) in chunks.iter().enumerate() {
+                            let part_path = out_dir.join(format!("split_part_{:03}.pdf", i + 1));
+                            rustpdf_edit::save_atomic(&part_path, chunk).map_err(|error| {
+                                format!(
+                                    "Failed to save '{}'. Earlier parts may already have been written: {error}",
+                                    part_path.display()
+                                )
+                            })?;
                         }
+
+                        Ok(chunks.len())
+                    })();
+
+                    match result {
+                        Ok(count) => self.notify_success(format!(
+                            "Split completed: {count} file(s) saved to '{}'.",
+                            out_dir.display()
+                        )),
+                        Err(error) => self.notify_error(error),
+                    }
+                }
+                ModalAction::Extract(pages, path) => {
+                    let result = self
+                        .active_session()
+                        .ok_or_else(|| "Open a PDF before extracting pages.".to_string())
+                        .and_then(|session| {
+                            rustpdf_organize::extract_pages(&session.raw_bytes, &pages)
+                                .map_err(|error| format!("Failed to extract PDF pages: {error}"))
+                        })
+                        .and_then(|bytes| {
+                            rustpdf_edit::save_atomic(&path, &bytes).map_err(|error| {
+                                format!(
+                                    "Failed to save extracted PDF to '{}': {error}",
+                                    path.display()
+                                )
+                            })
+                        });
+
+                    match result {
+                        Ok(()) => self.notify_success(format!(
+                            "Extracted {} page(s) to '{}'.",
+                            pages.len(),
+                            path.display()
+                        )),
+                        Err(error) => self.notify_error(error),
                     }
                 }
                 ModalAction::ExecuteCommand(cmd) => match cmd.as_str() {
@@ -1621,13 +1690,7 @@ impl App for RustPdfApp {
                             self.open_file(path);
                         }
                     }
-                    "Save Document" => {
-                        if let Some(s) = self.active_session_mut() {
-                            if let Some(ref p) = s.file_path.clone() {
-                                let _ = s.save_to(p);
-                            }
-                        }
-                    }
+                    "Save Document" => self.save_active_document(),
                     "Organize Pages" => {
                         self.active_workspace = ActiveWorkspace::Organizer;
                     }
@@ -1650,6 +1713,13 @@ impl App for RustPdfApp {
                         let doc_id = session.id;
                         self.organizer_state.invalidate_doc(doc_id);
                         self.viewer_state.invalidate_doc(doc_id);
+                    }
+                }
+                ModalAction::Notice { message, is_error } => {
+                    if is_error {
+                        self.notify_error(message);
+                    } else {
+                        self.notify_success(message);
                     }
                 }
             }

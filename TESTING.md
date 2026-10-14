@@ -17,7 +17,7 @@ The test suite is organized into three levels:
 
 ### Workspace Unit Tests
 ```bash
-cargo test --workspace
+cargo test --locked --workspace
 ```
 
 ### Integration Tests
@@ -63,6 +63,8 @@ cargo test -p rustpdf-forms
   - `test_compress_document_with_uncompressed_stream`: Verifies Flate stream re-compression and unreachable orphan object pruning from trailer `/Root`.
 - **Security & Integrity (`rustpdf-cos`)**:
   - `test_protect_document_rejects_pseudo_encryption`: Asserts that pseudo-encryption dictionaries are rejected to prevent false security.
+  - `test_remove_protection_refuses_to_drop_encryption_metadata`: Asserts that removing encryption metadata is refused without decryption.
+  - Page-operation regressions cover duplicate deletion indices, duplicate reorder indices, invalid split ranges, inherited attributes on nested page trees, and extraction in requested order.
 - **Forms & Appearance (`rustpdf-forms`)**:
   - Form editing verifies `/NeedAppearances true` is set on AcroForm dictionary to trigger viewer rendering.
 - **Safe Saving**:

@@ -1,6 +1,8 @@
 # RustPdf — Compatibility Matrix & Standard Support
 
-This document specifies the technical compatibility, ISO 32000 conformance, platform targets, and limitations of **RustPdf v0.4.0**.
+This document specifies the technical compatibility, ISO 32000 conformance, platform targets, and limitations of **RustPdf v0.5.0**.
+
+The v0.5.0 audit hardens page-order operations, validates extraction ranges, preserves inherited page attributes when normalizing nested page trees, and refuses unsafe pseudo-decryption. OCR, destructive redaction, encryption/decryption, certificate signing, and file comparison remain unsupported.
 
 ---
 
