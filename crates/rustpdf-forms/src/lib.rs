@@ -1,6 +1,6 @@
 //! rustpdf-forms — Interactive PDF AcroForm field inspection, value editing, and resetting.
 
-use lopdf::{Document as LopdfDoc, Object, ObjectId, StringFormat};
+use lopdf::{Document as LopdfDoc, Object, StringFormat};
 use rustpdf_cos::helpers::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -249,6 +249,7 @@ pub fn import_form_data_json(doc: &mut LopdfDoc, json_str: &str) -> Result<usize
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lopdf::ObjectId;
 
     fn make_form_doc(fields: &[(&str, &str, bool)]) -> (LopdfDoc, Vec<ObjectId>) {
         let mut doc = LopdfDoc::with_version("1.7");
