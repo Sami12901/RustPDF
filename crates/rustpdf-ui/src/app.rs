@@ -1142,16 +1142,14 @@ impl App for RustPdfApp {
                                                 Ok(extracted) => {
                                                     match rustpdf_edit::save_atomic(&path, &extracted) {
                                                         Ok(()) => self.notify_success(format!(
-                                                            "Extracted {} page(s) to {}",
-                                                            rustpdf_organize::extract_pages(
-                                                                &source_bytes,
-                                                                &selected_pages
-                                                            ).map(|bytes| lopdf::Document::load_mem(&bytes)
-                                                                .map(|pdf| pdf.get_pages().len())
-                                                                .unwrap_or(0))
-                                                            .unwrap_or(0),
-                                                            path.display()
-                                                        )),
+                                                    "Extracted {} page(s) to {}",
+                                                    selected_pages
+                                                        .iter()
+                                                        .copied()
+                                                        .collect::<std::collections::BTreeSet<_>>()
+                                                        .len(),
+                                                    path.display()
+                                                )),
                                                         Err(error) => self.notify_error(format!(
                                                             "Failed to save extracted PDF: {error}"
                                                         )),
@@ -1219,10 +1217,34 @@ impl App for RustPdfApp {
                                 self.modals_state.show_edit_content_dialog = true;
                             }
                             crate::tools_panel::ToolAction::ExportWord => {
-                                self.notify_error(
-                                    "DOC/DOCX export is not implemented. Export as RTF, which Word can open."
-                                );
-                                self.drawer_page = crate::tools_panel::DrawerPage::ExportPdf;
+                                if let Some(s) = self.active_session() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("Word-compatible Rich Text", &["rtf"])
+                                        .set_file_name(format!(
+                                            "{}.rtf",
+                                            s.display_name.trim_end_matches(".pdf")
+                                        ))
+                                        .save_file()
+                                    {
+                                        match rustpdf_export::try_export_word_doc(
+                                            s.cos_doc.inner(),
+                                            &s.display_name,
+                                        ) {
+                                            Ok(document) => match std::fs::write(&path, document) {
+                                                Ok(()) => self.notify_success(format!(
+                                                    "Exported Word-compatible RTF: {}",
+                                                    path.display()
+                                                )),
+                                                Err(error) => self.notify_error(format!(
+                                                    "Export failed: {error}"
+                                                )),
+                                            },
+                                            Err(error) => self.notify_error(format!(
+                                                "Text extraction failed; RTF was not exported: {error}"
+                                            )),
+                                        }
+                                    }
+                                }
                             }
                             crate::tools_panel::ToolAction::ExportRtf => {
                                 if let Some(s) = self.active_session() {
