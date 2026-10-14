@@ -95,6 +95,8 @@ impl DocumentPermissions {
 pub enum SecurityError {
     #[error("Standard PDF encryption (ISO 32000-1 §7.6) is currently unsupported. Fake/unencrypted dictionary injection is disabled to ensure file integrity and avoid false security.")]
     EncryptionUnsupported,
+    #[error("Removing password protection requires decrypting the PDF strings and streams. This operation is not supported, so the encrypted file was left unchanged.")]
+    RemovalUnsupported,
 }
 
 /// Checks if full ISO 32000 cryptographic encryption is supported.
@@ -117,15 +119,16 @@ pub fn protect_document(
     Err(SecurityError::EncryptionUnsupported)
 }
 
-/// Removes encryption protection dictionary from document trailer.
-pub fn remove_protection(doc: &mut LopdfDoc) {
-    if let Ok(Object::Reference(id)) = doc.trailer.get(b"Encrypt") {
-        let enc_id = *id;
-        doc.trailer.remove(b"Encrypt");
-        doc.objects.remove(&enc_id);
-    } else {
-        doc.trailer.remove(b"Encrypt");
+/// Refuses to strip /Encrypt without decrypting the protected strings and streams.
+///
+/// Returning an error is intentional: deleting only the encryption dictionary would
+/// corrupt or misrepresent an encrypted PDF as plaintext. `Ok(false)` means no
+/// encryption dictionary was present, so there was nothing to remove.
+pub fn remove_protection(doc: &mut LopdfDoc) -> Result<bool, SecurityError> {
+    if doc.trailer.get(b"Encrypt").is_ok() {
+        return Err(SecurityError::RemovalUnsupported);
     }
+    Ok(false)
 }
 
 /// Inspects encryption state and permissions from document trailer.
@@ -174,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inspect_and_remove_protection() {
+    fn test_inspect_and_remove_protection_does_not_strip_encrypt_dictionary() {
         let mut doc = LopdfDoc::with_version("1.7");
         let mut enc = lopdf::Dictionary::new();
         enc.set(b"Filter", Object::Name(b"Standard".to_vec()));
@@ -189,7 +192,18 @@ mod tests {
         assert!(!detected.allow_print);
         assert!(!detected.allow_copy);
 
-        remove_protection(&mut doc);
-        assert!(inspect_protection(&doc).is_none());
+        assert_eq!(
+            remove_protection(&mut doc),
+            Err(SecurityError::RemovalUnsupported)
+        );
+        assert!(doc.trailer.get(b"Encrypt").is_ok());
+        assert!(inspect_protection(&doc).is_some());
+    }
+
+    #[test]
+    fn test_remove_protection_reports_no_encryption_without_mutation() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        assert_eq!(remove_protection(&mut doc), Ok(false));
+        assert!(doc.trailer.get(b"Encrypt").is_err());
     }
 }

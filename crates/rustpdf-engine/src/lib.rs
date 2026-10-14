@@ -80,34 +80,94 @@ impl DocumentSession {
         self.model.pages.len()
     }
 
-    /// Refreshes model and raw_bytes from current in-memory cos_doc.
+    /// Serializes and validates a candidate in-memory change before committing it.
+    ///
+    /// A failed serialization or model rebuild restores the prior document state and does
+    /// not add an undo entry. This keeps `cos_doc`, `raw_bytes`, `model`, and history
+    /// synchronized even when a malformed edit cannot be committed.
     fn commit_in_memory_change(
         &mut self,
         description: &str,
         old_bytes: Vec<u8>,
     ) -> Result<(), EngineError> {
-        let mut new_bytes = Vec::new();
-        self.cos_doc.save_to(&mut new_bytes)?;
+        let candidate = (|| -> Result<(Vec<u8>, CosDoc, DocumentModel), EngineError> {
+            let mut new_bytes = Vec::new();
+            self.cos_doc.save_to(&mut new_bytes)?;
+            let candidate_doc = CosDoc::load_mem(&new_bytes)?;
+            let candidate_model = DocumentModel::from_cos(&candidate_doc, new_bytes.len())?;
+            Ok((new_bytes, candidate_doc, candidate_model))
+        })();
 
+        match candidate {
+            Ok((new_bytes, candidate_doc, candidate_model)) => {
+                self.history.push(description, old_bytes, new_bytes.clone());
+                self.cos_doc = candidate_doc;
+                self.raw_bytes = Arc::new(new_bytes);
+                self.model = candidate_model;
+                self.is_dirty = true;
+                Ok(())
+            }
+            Err(error) => {
+                // The old bytes come from an already-open, previously validated document.
+                let restored_doc = CosDoc::load_mem(&old_bytes)?;
+                let restored_model = DocumentModel::from_cos(&restored_doc, old_bytes.len())?;
+                self.cos_doc = restored_doc;
+                self.raw_bytes = Arc::new(old_bytes);
+                self.model = restored_model;
+                Err(error)
+            }
+        }
+    }
+
+    /// Applies an edit to a cloned PDF and commits it only after serialization and
+    /// model validation succeed. If the edit fails, the live document and history stay
+    /// unchanged even when a low-level operation performed several mutations first.
+    fn commit_candidate_document(
+        &mut self,
+        description: &str,
+        mut candidate: CosDoc,
+    ) -> Result<(), EngineError> {
+        let mut new_bytes = Vec::new();
+        candidate.save_to(&mut new_bytes)?;
+        let validated_doc = CosDoc::load_mem(&new_bytes)?;
+        let validated_model = DocumentModel::from_cos(&validated_doc, new_bytes.len())?;
+
+        let old_bytes = (*self.raw_bytes).clone();
         self.history.push(description, old_bytes, new_bytes.clone());
+        self.cos_doc = validated_doc;
         self.raw_bytes = Arc::new(new_bytes);
-        self.model = DocumentModel::from_cos(&self.cos_doc, self.raw_bytes.len())?;
+        self.model = validated_model;
         self.is_dirty = true;
         Ok(())
     }
 
+    fn mutate_transactionally<T, E, F>(
+        &mut self,
+        description: &str,
+        mutate: F,
+    ) -> Result<T, EngineError>
+    where
+        EngineError: From<E>,
+        F: FnOnce(&mut CosDoc) -> Result<T, E>,
+    {
+        let mut candidate = self.cos_doc.clone();
+        let output = mutate(&mut candidate)?;
+        self.commit_candidate_document(description, candidate)?;
+        Ok(output)
+    }
+
     /// Rotates specified pages by degrees.
     pub fn rotate_pages(&mut self, pages: &[usize], degrees: i32) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::rotate_pages(self.cos_doc.inner_mut(), pages, degrees)?;
-        self.commit_in_memory_change(&format!("Rotate {degrees}°"), old_bytes)
+        self.mutate_transactionally(&format!("Rotate {degrees}°"), |doc| {
+            rustpdf_organize::rotate_pages(doc.inner_mut(), pages, degrees)
+        })
     }
 
     /// Deletes specified pages.
     pub fn delete_pages(&mut self, pages: &[usize]) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::delete_pages(self.cos_doc.inner_mut(), pages)?;
-        self.commit_in_memory_change("Delete pages", old_bytes)
+        self.mutate_transactionally("Delete pages", |doc| {
+            rustpdf_organize::delete_pages(doc.inner_mut(), pages)
+        })
     }
 
     /// Inserts a blank page.
@@ -117,16 +177,16 @@ impl DocumentSession {
         width: f32,
         height: f32,
     ) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::insert_blank_page(self.cos_doc.inner_mut(), index, width, height)?;
-        self.commit_in_memory_change("Insert blank page", old_bytes)
+        self.mutate_transactionally("Insert blank page", |doc| {
+            rustpdf_organize::insert_blank_page(doc.inner_mut(), index, width, height)
+        })
     }
 
     /// Duplicates a page.
     pub fn duplicate_page(&mut self, index: usize) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::duplicate_page(self.cos_doc.inner_mut(), index)?;
-        self.commit_in_memory_change("Duplicate page", old_bytes)
+        self.mutate_transactionally("Duplicate page", |doc| {
+            rustpdf_organize::duplicate_page(doc.inner_mut(), index)
+        })
     }
 
     /// Moves a page from one index to another (0-indexed) with undo/redo history.
@@ -134,16 +194,17 @@ impl DocumentSession {
         if from == to {
             return Ok(());
         }
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::move_page(self.cos_doc.inner_mut(), from, to)?;
-        self.commit_in_memory_change(&format!("Move page {} to {}", from + 1, to + 1), old_bytes)
+        self.mutate_transactionally(
+            &format!("Move page {} to {}", from + 1, to + 1),
+            |doc| rustpdf_organize::move_page(doc.inner_mut(), from, to),
+        )
     }
 
     /// Reorders pages according to the specified index order with undo/redo history.
     pub fn reorder_pages(&mut self, new_order: &[usize]) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::reorder_pages(self.cos_doc.inner_mut(), new_order)?;
-        self.commit_in_memory_change("Reorder pages", old_bytes)
+        self.mutate_transactionally("Reorder pages", |doc| {
+            rustpdf_organize::reorder_pages(doc.inner_mut(), new_order)
+        })
     }
 
     /// Undoes the last modification.
@@ -186,9 +247,10 @@ impl DocumentSession {
 
     /// Updates metadata and saves to in-memory tree.
     pub fn update_metadata(&mut self, new_meta: DocumentMetadata) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        new_meta.write_to_cos(&mut self.cos_doc);
-        self.commit_in_memory_change("Update metadata", old_bytes)
+        self.mutate_transactionally("Update metadata", |doc| {
+            new_meta.write_to_cos(doc);
+            Ok::<(), EngineError>(())
+        })
     }
 
     /// Adds an annotation and records in undo history.
@@ -196,18 +258,17 @@ impl DocumentSession {
         &mut self,
         annot: &rustpdf_annot::Annotation,
     ) -> Result<lopdf::ObjectId, EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        let id = rustpdf_annot::add_annotation(self.cos_doc.inner_mut(), annot)?;
-        self.commit_in_memory_change("Add annotation", old_bytes)?;
-        Ok(id)
+        self.mutate_transactionally("Add annotation", |doc| {
+            rustpdf_annot::add_annotation(doc.inner_mut(), annot)
+        })
     }
 
     /// Deletes an annotation by ID and records in undo history.
     pub fn delete_annotation(&mut self, annot_id: (u32, u16)) -> Result<bool, EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        let removed = rustpdf_annot::delete_annotation(self.cos_doc.inner_mut(), annot_id)?;
+        let mut candidate = self.cos_doc.clone();
+        let removed = rustpdf_annot::delete_annotation(candidate.inner_mut(), annot_id)?;
         if removed {
-            self.commit_in_memory_change("Delete annotation", old_bytes)?;
+            self.commit_candidate_document("Delete annotation", candidate)?;
         }
         Ok(removed)
     }
@@ -228,17 +289,18 @@ impl DocumentSession {
         field_name: &str,
         new_val: &str,
     ) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_forms::set_field_value(self.cos_doc.inner_mut(), field_name, new_val)?;
-        self.commit_in_memory_change("Edit form field", old_bytes)?;
-        Ok(())
+        self.mutate_transactionally("Edit form field", |doc| {
+            rustpdf_forms::set_field_value(doc.inner_mut(), field_name, new_val)
+        })
     }
 
     /// Resets all form fields and records in undo history.
     pub fn reset_form_fields(&mut self) -> Result<usize, EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        let count = rustpdf_forms::reset_all_fields(self.cos_doc.inner_mut())?;
-        self.commit_in_memory_change("Reset form fields", old_bytes)?;
+        let mut candidate = self.cos_doc.clone();
+        let count = rustpdf_forms::reset_all_fields(candidate.inner_mut())?;
+        if count > 0 {
+            self.commit_candidate_document("Reset form fields", candidate)?;
+        }
         Ok(count)
     }
 
@@ -261,12 +323,18 @@ impl DocumentSession {
         Ok(())
     }
 
-    /// Removes password protection and restrictions.
-    pub fn remove_protection(&mut self) -> Result<(), EngineError> {
+    /// Removes password protection only when the security handler can safely decrypt it.
+    ///
+    /// The current implementation deliberately refuses encrypted PDFs rather than
+    /// deleting their /Encrypt dictionary without decrypting strings and streams.
+    /// Returns `Ok(false)` when the PDF is not encrypted.
+    pub fn remove_protection(&mut self) -> Result<bool, EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_cos::security::remove_protection(self.cos_doc.inner_mut());
-        self.commit_in_memory_change("Remove protection", old_bytes)?;
-        Ok(())
+        let removed = rustpdf_cos::security::remove_protection(self.cos_doc.inner_mut())?;
+        if removed {
+            self.commit_in_memory_change("Remove protection", old_bytes)?;
+        }
+        Ok(removed)
     }
 
     /// Adds an embedded file attachment to the document.
@@ -275,10 +343,9 @@ impl DocumentSession {
         filename: &str,
         data: &[u8],
     ) -> Result<lopdf::ObjectId, EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        let id = rustpdf_model::add_attachment(self.cos_doc.inner_mut(), filename, data)?;
-        self.commit_in_memory_change("Add attachment", old_bytes)?;
-        Ok(id)
+        self.mutate_transactionally("Add attachment", |doc| {
+            rustpdf_model::add_attachment(doc.inner_mut(), filename, data)
+        })
     }
 
     /// Adds custom text to a page at (x, y) coordinates and commits to undo history.
@@ -525,6 +592,29 @@ impl DocumentSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_edit_commit_restores_last_valid_document_state() {
+        let bytes = rustpdf_export::create_blank_pdf(2, 612.0, 792.0, "Rollback Test").unwrap();
+        let mut session = DocumentSession::open_mem(bytes, None).unwrap();
+        let old_bytes = session.raw_bytes.as_ref().clone();
+
+        // Force model validation to fail after candidate serialization succeeds.
+        session.cos_doc.inner_mut().trailer.remove(b"Root");
+        let result = session.commit_in_memory_change("Invalid mutation", old_bytes.clone());
+
+        assert!(matches!(
+            result,
+            Err(EngineError::Model(
+                rustpdf_model::ModelError::MissingCatalog
+            ))
+        ));
+        assert_eq!(session.raw_bytes.as_ref(), &old_bytes);
+        assert_eq!(session.page_count(), 2);
+        assert!(session.cos_doc.inner().trailer.get(b"Root").is_ok());
+        assert!(!session.history.can_undo());
+        assert!(!session.is_dirty);
+    }
 
     #[test]
     fn test_session_lifecycle() {

@@ -673,7 +673,7 @@ impl ToolsPanelComponent {
             if Self::draw_tool_row(
                 ui,
                 IconKind::Document,
-                "Microsoft Word (.docx)",
+                "Word-compatible RTF (.rtf)",
                 Some(ToolBadge::Ready),
                 Some(blue),
                 true,
@@ -683,20 +683,20 @@ impl ToolsPanelComponent {
             if Self::draw_tool_row(
                 ui,
                 IconKind::Spreadsheet,
-                "Spreadsheet (.xlsx)",
-                Some(ToolBadge::M10),
+                "Spreadsheet data (.csv)",
+                Some(ToolBadge::Ready),
                 Some(blue),
-                false,
+                true,
             ) {
                 *action = Some(ToolAction::ExportSpreadsheet);
             }
             if Self::draw_tool_row(
                 ui,
                 IconKind::Presentation,
-                "Presentation (.pptx)",
-                Some(ToolBadge::M10),
+                "Slide images (PNG)",
+                Some(ToolBadge::Ready),
                 Some(blue),
-                false,
+                true,
             ) {
                 *action = Some(ToolAction::ExportPresentation);
             }
@@ -753,7 +753,7 @@ impl ToolsPanelComponent {
             if Self::draw_tool_row(
                 ui,
                 IconKind::CompressPdf,
-                "PostScript / EPS",
+                "PostScript / EPS (planned)",
                 Some(ToolBadge::M10),
                 Some(blue),
                 false,

@@ -1,6 +1,6 @@
 # RustPdf — Compatibility Matrix & Standard Support
 
-This document specifies the technical compatibility, ISO 32000 conformance, platform targets, and limitations of **RustPdf v0.4.0**.
+This document specifies the technical compatibility, ISO 32000 conformance, platform targets, and limitations of **RustPdf v0.5.0**.
 
 ---
 

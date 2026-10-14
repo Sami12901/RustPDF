@@ -123,3 +123,115 @@ fn test_text_command_rejects_page_zero() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("out of range"));
 }
+
+#[test]
+fn test_render_rejects_page_zero_without_timing_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("render-page-check.pdf");
+    let output = dir.path().join("page.png");
+    std::fs::write(
+        &input,
+        create_blank_pdf(1, 612.0, 792.0, "Render Page Check").unwrap(),
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args([
+            "render",
+            input.to_str().unwrap(),
+            "--page",
+            "0",
+            "--out",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("at least 1"));
+}
+
+#[test]
+fn test_extract_rejects_out_of_range_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("extract-page-check.pdf");
+    let output = dir.path().join("extracted.pdf");
+    std::fs::write(
+        &input,
+        create_blank_pdf(2, 612.0, 792.0, "Extract Page Check").unwrap(),
+    )
+    .unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args([
+            "extract",
+            input.to_str().unwrap(),
+            "--pages",
+            "1,3",
+            "--out",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("out of range"));
+    assert!(!output.exists());
+}
+
+#[test]
+fn test_cli_refuses_to_overwrite_source_pdf() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("source.pdf");
+    let original = create_blank_pdf(2, 612.0, 792.0, "Overwrite Guard").unwrap();
+    std::fs::write(&input, &original).unwrap();
+
+    let render = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args([
+            "render",
+            input.to_str().unwrap(),
+            "--page",
+            "1",
+            "--out",
+            input.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!render.status.success());
+    assert!(String::from_utf8_lossy(&render.stderr).contains("Refusing to overwrite"));
+
+    let extract = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args([
+            "extract",
+            input.to_str().unwrap(),
+            "--pages",
+            "1",
+            "--out",
+            input.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!extract.status.success());
+    assert!(String::from_utf8_lossy(&extract.stderr).contains("Refusing to overwrite"));
+
+    let combine = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args([
+            "combine",
+            input.to_str().unwrap(),
+            "--out",
+            input.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!combine.status.success());
+    assert!(String::from_utf8_lossy(&combine.stderr).contains("Refusing to overwrite"));
+
+    assert_eq!(std::fs::read(&input).unwrap(), original);
+    assert_eq!(
+        lopdf::Document::load_mem(&original)
+            .unwrap()
+            .get_pages()
+            .len(),
+        2
+    );
+}

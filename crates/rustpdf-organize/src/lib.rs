@@ -9,6 +9,10 @@ pub enum OrganizeError {
     CannotRemoveAllPages,
     #[error("page index {0} out of bounds (document has {1} pages)")]
     IndexOutOfBounds(usize, usize),
+    #[error("page index {0} appears more than once")]
+    DuplicatePageIndex(usize),
+    #[error("at least one page must be selected for extraction")]
+    EmptyPageSelection,
     #[error("invalid rotation {0}: degrees must be a multiple of 90")]
     InvalidRotation(i32),
     #[error("lopdf error: {0}")]
@@ -25,18 +29,16 @@ pub fn insert_page_into_document(
     index: usize,
     page_id: ObjectId,
 ) -> Result<(), OrganizeError> {
-    // 1. Ensure Catalog exists
     let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
         root_ref
     } else {
-        let mut cat = Dictionary::new();
-        cat.set(b"Type", Object::Name(b"Catalog".to_vec()));
-        let id = doc.add_object(cat);
+        let mut catalog = Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        let id = doc.add_object(catalog);
         doc.trailer.set(b"Root", Object::Reference(id));
         id
     };
 
-    // 2. Ensure Pages root exists
     let pages_root_id = {
         let catalog = doc.get_object(catalog_id)?.as_dict()?;
         if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
@@ -46,32 +48,78 @@ pub fn insert_page_into_document(
             pages_dict.set(b"Type", Object::Name(b"Pages".to_vec()));
             pages_dict.set(b"Count", Object::Integer(0));
             pages_dict.set(b"Kids", Object::Array(Vec::new()));
-            let p_id = doc.add_object(pages_dict);
-            let cat_mut = doc.get_object_mut(catalog_id)?.as_dict_mut()?;
-            cat_mut.set(b"Pages", Object::Reference(p_id));
-            p_id
+            let pages_id = doc.add_object(pages_dict);
+            doc.get_object_mut(catalog_id)?
+                .as_dict_mut()?
+                .set(b"Pages", Object::Reference(pages_id));
+            pages_id
         }
     };
 
-    // Set page's Parent to pages_root_id
-    if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
-        page_dict.set(b"Parent", Object::Reference(pages_root_id));
+    let mut page_ids: Vec<ObjectId> = doc.page_iter().collect();
+    if index > page_ids.len() {
+        return Err(OrganizeError::IndexOutOfBounds(index, page_ids.len()));
     }
 
-    // Insert into Pages dictionary Kids array
-    let pages_dict = doc.get_object_mut(pages_root_id)?.as_dict_mut()?;
-    let kids = match pages_dict.get_mut(b"Kids") {
-        Ok(Object::Array(ref mut arr)) => arr,
-        _ => {
-            pages_dict.set(b"Kids", Object::Array(Vec::new()));
-            pages_dict.get_mut(b"Kids")?.as_array_mut()?
-        }
-    };
+    // Preserve attributes inherited from nested /Pages nodes before flattening
+    // the page tree to a single ordered root Kids array.
+    for &existing_id in &page_ids {
+        copy_inherited_page_attributes(doc, existing_id)?;
+    }
+    copy_inherited_page_attributes(doc, page_id)?;
 
-    let insert_pos = index.min(kids.len());
-    kids.insert(insert_pos, Object::Reference(page_id));
-    let count = kids.len() as i64;
-    pages_dict.set(b"Count", Object::Integer(count));
+    page_ids.insert(index, page_id);
+    set_document_page_order_at_root(doc, pages_root_id, &page_ids)
+}
+
+/// Copies inherited page attributes onto a leaf page before its /Parent changes.
+fn copy_inherited_page_attributes(
+    doc: &mut LopdfDoc,
+    page_id: ObjectId,
+) -> Result<(), OrganizeError> {
+    const INHERITABLE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
+
+    let page_dict = doc.get_object(page_id)?.as_dict()?;
+    let parent_id = page_dict
+        .get(b"Parent")
+        .ok()
+        .and_then(|object| object.as_reference().ok());
+    let mut inherited = Vec::new();
+
+    for key in INHERITABLE_KEYS {
+        if page_dict.get(key).is_ok() {
+            continue;
+        }
+
+        let mut cursor = parent_id;
+        let mut visited = std::collections::HashSet::new();
+        let mut found = None;
+        while let Some(id) = cursor {
+            if !visited.insert(id) {
+                break;
+            }
+            let parent = doc.get_object(id)?.as_dict()?;
+            if let Ok(value) = parent.get(key) {
+                found = Some(value.clone());
+                break;
+            }
+            cursor = parent
+                .get(b"Parent")
+                .ok()
+                .and_then(|object| object.as_reference().ok());
+        }
+
+        if let Some(value) = found {
+            inherited.push((key, value));
+        }
+    }
+
+    if !inherited.is_empty() {
+        let dict = doc.get_object_mut(page_id)?.as_dict_mut()?;
+        for (key, value) in inherited {
+            dict.set(key, value);
+        }
+    }
 
     Ok(())
 }
@@ -116,18 +164,29 @@ pub fn rotate_pages(
 
 /// Deletes specified pages from the document. Fails if all pages would be removed.
 pub fn delete_pages(doc: &mut LopdfDoc, pages: &[usize]) -> Result<(), OrganizeError> {
-    let current_pages = doc.get_pages();
-    let total = current_pages.len();
+    let total = doc.get_pages().len();
+    let mut unique_pages = std::collections::BTreeSet::new();
 
-    if pages.len() >= total {
+    for &page_idx in pages {
+        if page_idx >= total {
+            return Err(OrganizeError::IndexOutOfBounds(page_idx, total));
+        }
+        unique_pages.insert(page_idx);
+    }
+
+    if unique_pages.len() >= total {
         return Err(OrganizeError::CannotRemoveAllPages);
     }
 
-    // Convert 0-indexed pages to 1-indexed page numbers
-    let mut page_nums: Vec<u32> = pages.iter().map(|&idx| (idx + 1) as u32).collect();
-    page_nums.sort_unstable();
+    // lopdf expects 1-based page numbers. Deduplicate repeated UI selections.
+    let page_nums: Vec<u32> = unique_pages
+        .into_iter()
+        .map(|idx| (idx + 1) as u32)
+        .collect();
 
-    doc.delete_pages(&page_nums);
+    if !page_nums.is_empty() {
+        doc.delete_pages(&page_nums);
+    }
     Ok(())
 }
 
@@ -212,10 +271,14 @@ pub fn reorder_pages(doc: &mut LopdfDoc, new_order: &[usize]) -> Result<(), Orga
         return Err(OrganizeError::IndexOutOfBounds(new_order.len(), total));
     }
 
+    let mut seen = std::collections::HashSet::with_capacity(total);
     let mut reordered = Vec::with_capacity(total);
     for &idx in new_order {
         if idx >= total {
             return Err(OrganizeError::IndexOutOfBounds(idx, total));
+        }
+        if !seen.insert(idx) {
+            return Err(OrganizeError::DuplicatePageIndex(idx));
         }
         reordered.push(pages[idx]);
     }
@@ -224,27 +287,33 @@ pub fn reorder_pages(doc: &mut LopdfDoc, new_order: &[usize]) -> Result<(), Orga
 }
 
 fn set_document_page_order(doc: &mut LopdfDoc, page_ids: &[ObjectId]) -> Result<(), OrganizeError> {
-    let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
-        root_ref
-    } else {
-        return Err(OrganizeError::CombineFailed("Missing catalog".to_string()));
-    };
-
-    let pages_root_id = {
-        let catalog = doc.get_object(catalog_id)?.as_dict()?;
-        if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
-            pages_ref
-        } else {
-            return Err(OrganizeError::CombineFailed(
-                "Missing pages root".to_string(),
-            ));
-        }
-    };
+    let catalog_id = doc
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+        .map_err(|_| OrganizeError::CombineFailed("Missing catalog".to_string()))?;
+    let pages_root_id = doc
+        .get_object(catalog_id)?
+        .as_dict()?
+        .get(b"Pages")
+        .and_then(Object::as_reference)
+        .map_err(|_| OrganizeError::CombineFailed("Missing pages root".to_string()))?;
 
     for &page_id in page_ids {
-        if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
-            page_dict.set(b"Parent", Object::Reference(pages_root_id));
-        }
+        copy_inherited_page_attributes(doc, page_id)?;
+    }
+    set_document_page_order_at_root(doc, pages_root_id, page_ids)
+}
+
+fn set_document_page_order_at_root(
+    doc: &mut LopdfDoc,
+    pages_root_id: ObjectId,
+    page_ids: &[ObjectId],
+) -> Result<(), OrganizeError> {
+    for &page_id in page_ids {
+        doc.get_object_mut(page_id)?
+            .as_dict_mut()?
+            .set(b"Parent", Object::Reference(pages_root_id));
     }
 
     let pages_dict = doc.get_object_mut(pages_root_id)?.as_dict_mut()?;
@@ -253,6 +322,96 @@ fn set_document_page_order(doc: &mut LopdfDoc, page_ids: &[ObjectId]) -> Result<
     pages_dict.set(b"Count", Object::Integer(page_ids.len() as i64));
 
     Ok(())
+}
+
+/// Extracts the requested zero-based pages into a separate standalone PDF.
+///
+/// Pages are emitted in their original document order. Repeated selections are
+/// deduplicated; any out-of-range index rejects the operation without modifying
+/// the caller's original bytes.
+pub fn extract_pages(doc_bytes: &[u8], page_indices: &[usize]) -> Result<Vec<u8>, OrganizeError> {
+    if page_indices.is_empty() {
+        return Err(OrganizeError::EmptyPageSelection);
+    }
+
+    let mut doc = LopdfDoc::load_mem(doc_bytes)?;
+    let total = doc.get_pages().len();
+    let mut selected = std::collections::BTreeSet::new();
+
+    for &index in page_indices {
+        if index >= total {
+            return Err(OrganizeError::IndexOutOfBounds(index, total));
+        }
+        selected.insert(index);
+    }
+
+    let to_delete: Vec<u32> = (0..total)
+        .filter(|index| !selected.contains(index))
+        .map(|index| (index + 1) as u32)
+        .collect();
+
+    if !to_delete.is_empty() {
+        doc.delete_pages(&to_delete);
+    }
+
+    if doc.get_pages().len() != selected.len() {
+        return Err(OrganizeError::CombineFailed(
+            "Extracted page count does not match the requested selection".to_string(),
+        ));
+    }
+
+    let mut output = Vec::new();
+    doc.save_to(&mut output)?;
+    Ok(output)
+}
+
+#[cfg(test)]
+mod extraction_tests {
+    use super::*;
+
+    #[test]
+    fn extract_pages_preserves_document_order_and_deduplicates_selection() {
+        let mut original = LopdfDoc::with_version("1.7");
+        for i in 0..4 {
+            insert_blank_page(&mut original, i, 612.0 + i as f32, 792.0).unwrap();
+        }
+        let mut source = Vec::new();
+        original.save_to(&mut source).unwrap();
+
+        let extracted = extract_pages(&source, &[3, 1, 1]).unwrap();
+        let extracted_doc = LopdfDoc::load_mem(&extracted).unwrap();
+        let pages = extracted_doc.get_pages();
+        assert_eq!(pages.len(), 2);
+
+        let widths: Vec<f32> = pages
+            .values()
+            .map(|id| {
+                let page = extracted_doc.get_object(*id).unwrap().as_dict().unwrap();
+                page.get(b"MediaBox").unwrap().as_array().unwrap()[2]
+                    .as_float()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(widths, vec![613.0, 615.0]);
+    }
+
+    #[test]
+    fn extract_pages_rejects_empty_or_out_of_range_selection() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        let mut source = Vec::new();
+        doc.save_to(&mut source).unwrap();
+
+        assert!(matches!(
+            extract_pages(&source, &[]),
+            Err(OrganizeError::EmptyPageSelection)
+        ));
+        assert!(matches!(
+            extract_pages(&source, &[1]),
+            Err(OrganizeError::IndexOutOfBounds(1, 1))
+        ));
+        assert_eq!(LopdfDoc::load_mem(&source).unwrap().get_pages().len(), 1);
+    }
 }
 
 /// Merges multiple PDF document byte buffers into a single combined PDF.
@@ -372,6 +531,117 @@ mod tests {
 
         // Trying to delete last page must fail
         assert!(delete_pages(&mut doc, &[0]).is_err());
+    }
+
+    #[test]
+    fn insertion_flattens_nested_page_tree_without_losing_inherited_attributes() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        let resources_id = doc.add_object(Dictionary::new());
+
+        let top_pages_id = doc.new_object_id();
+        let nested_pages_id = doc.new_object_id();
+
+        let mut page_a = Dictionary::new();
+        page_a.set(b"Type", Object::Name(b"Page".to_vec()));
+        page_a.set(b"Parent", Object::Reference(nested_pages_id));
+        let page_a_id = doc.add_object(page_a);
+
+        let mut page_b = Dictionary::new();
+        page_b.set(b"Type", Object::Name(b"Page".to_vec()));
+        page_b.set(b"Parent", Object::Reference(nested_pages_id));
+        let page_b_id = doc.add_object(page_b);
+
+        let mut nested_pages = Dictionary::new();
+        nested_pages.set(b"Type", Object::Name(b"Pages".to_vec()));
+        nested_pages.set(b"Parent", Object::Reference(top_pages_id));
+        nested_pages.set(b"Count", Object::Integer(2));
+        nested_pages.set(
+            b"Kids",
+            Object::Array(vec![
+                Object::Reference(page_a_id),
+                Object::Reference(page_b_id),
+            ]),
+        );
+        nested_pages.set(
+            b"MediaBox",
+            Object::Array(vec![
+                Object::Real(0.0),
+                Object::Real(0.0),
+                Object::Real(612.0),
+                Object::Real(792.0),
+            ]),
+        );
+        nested_pages.set(b"Resources", Object::Reference(resources_id));
+        doc.set_object(nested_pages_id, nested_pages);
+
+        let mut top_pages = Dictionary::new();
+        top_pages.set(b"Type", Object::Name(b"Pages".to_vec()));
+        top_pages.set(b"Count", Object::Integer(2));
+        top_pages.set(
+            b"Kids",
+            Object::Array(vec![Object::Reference(nested_pages_id)]),
+        );
+        doc.set_object(top_pages_id, top_pages);
+
+        let mut catalog = Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        catalog.set(b"Pages", Object::Reference(top_pages_id));
+        let catalog_id = doc.add_object(catalog);
+        doc.trailer.set(b"Root", Object::Reference(catalog_id));
+
+        insert_blank_page(&mut doc, 1, 555.0, 777.0).unwrap();
+
+        let pages = doc.get_pages();
+        assert_eq!(pages.len(), 3);
+        let widths: Vec<f32> = pages
+            .values()
+            .map(|id| {
+                let page = doc.get_object(*id).unwrap().as_dict().unwrap();
+                assert!(page.get(b"Resources").is_ok());
+                page.get(b"MediaBox").unwrap().as_array().unwrap()[2]
+                    .as_float()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(widths, vec![612.0, 555.0, 612.0]);
+
+        let root = doc.get_object(top_pages_id).unwrap().as_dict().unwrap();
+        let kids = root.get(b"Kids").unwrap().as_array().unwrap();
+        assert_eq!(kids.len(), 3);
+        assert!(kids.iter().all(|child| child.as_reference().is_ok()));
+    }
+
+    #[test]
+    fn test_delete_pages_validates_indices_and_deduplicates() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        for i in 0..3 {
+            insert_blank_page(&mut doc, i, 612.0, 792.0).unwrap();
+        }
+
+        delete_pages(&mut doc, &[1, 1]).unwrap();
+        assert_eq!(doc.get_pages().len(), 2);
+        assert!(matches!(
+            delete_pages(&mut doc, &[2]),
+            Err(OrganizeError::IndexOutOfBounds(2, 2))
+        ));
+        assert!(matches!(
+            delete_pages(&mut doc, &[0, 0, 2]),
+            Err(OrganizeError::IndexOutOfBounds(2, 2))
+        ));
+    }
+
+    #[test]
+    fn test_reorder_pages_rejects_duplicate_indices() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        for i in 0..3 {
+            insert_blank_page(&mut doc, i, 612.0, 792.0).unwrap();
+        }
+
+        assert!(matches!(
+            reorder_pages(&mut doc, &[0, 0, 2]),
+            Err(OrganizeError::DuplicatePageIndex(0))
+        ));
+        assert_eq!(doc.get_pages().len(), 3);
     }
 
     #[test]
