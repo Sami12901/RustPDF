@@ -266,8 +266,25 @@ impl ModalsComponent {
                                 .add_filter("JSON Theme", &["json"])
                                 .save_file()
                             {
-                                if let Ok(data) = serde_json::to_string_pretty(theme) {
-                                    let _ = std::fs::write(path, data);
+                                match serde_json::to_string_pretty(theme) {
+                                    Ok(data) => {
+                                        action = Some(match std::fs::write(path, data) {
+                                            Ok(()) => ModalAction::Notification(
+                                                "Theme exported.".to_string(),
+                                                false,
+                                            ),
+                                            Err(error) => ModalAction::Notification(
+                                                format!("Failed to export theme: {error}"),
+                                                true,
+                                            ),
+                                        });
+                                    }
+                                    Err(error) => {
+                                        action = Some(ModalAction::Notification(
+                                            format!("Failed to serialize theme: {error}"),
+                                            true,
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -277,10 +294,29 @@ impl ModalsComponent {
                                 .add_filter("JSON Theme", &["json"])
                                 .pick_file()
                             {
-                                if let Ok(data) = std::fs::read_to_string(path) {
-                                    if let Ok(imported) = serde_json::from_str(&data) {
-                                        *theme = imported;
-                                        theme.apply_to_egui(ctx);
+                                match std::fs::read_to_string(&path) {
+                                    Ok(data) => match serde_json::from_str::<AppTheme>(&data) {
+                                        Ok(imported) => {
+                                            *theme = imported;
+                                            theme.apply_to_egui(ctx);
+                                            action = Some(ModalAction::Notification(
+                                                "Theme imported. Save it to retain the setting."
+                                                    .to_string(),
+                                                false,
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            action = Some(ModalAction::Notification(
+                                                format!("Invalid theme JSON: {error}"),
+                                                true,
+                                            ));
+                                        }
+                                    },
+                                    Err(error) => {
+                                        action = Some(ModalAction::Notification(
+                                            format!("Failed to read theme file: {error}"),
+                                            true,
+                                        ));
                                     }
                                 }
                             }
@@ -779,10 +815,25 @@ impl ModalsComponent {
                                     .add_filter("JSON", &["json"])
                                     .save_file()
                                 {
-                                    if let Ok(json) =
-                                        rustpdf_forms::export_form_data_json(s.cos_doc.inner())
-                                    {
-                                        let _ = std::fs::write(path, json);
+                                    match rustpdf_forms::export_form_data_json(s.cos_doc.inner()) {
+                                        Ok(json) => {
+                                            action = Some(match std::fs::write(path, json) {
+                                                Ok(()) => ModalAction::Notification(
+                                                    "Form data exported.".to_string(),
+                                                    false,
+                                                ),
+                                                Err(error) => ModalAction::Notification(
+                                                    format!("Failed to write form data: {error}"),
+                                                    true,
+                                                ),
+                                            });
+                                        }
+                                        Err(error) => {
+                                            action = Some(ModalAction::Notification(
+                                                format!("Failed to export form data: {error}"),
+                                                true,
+                                            ));
+                                        }
                                     }
                                 }
                             }
@@ -840,7 +891,16 @@ impl ModalsComponent {
                                         .unwrap_or_default()
                                         .to_string_lossy()
                                         .to_string();
-                                    let _ = s.add_attachment(&filename, &bytes);
+                                    action = Some(match s.add_attachment(&filename, &bytes) {
+                                        Ok(_) => ModalAction::Notification(
+                                            format!("Attached '{filename}'. Save the PDF to persist it."),
+                                            false,
+                                        ),
+                                        Err(error) => ModalAction::Notification(
+                                            format!("Failed to attach '{filename}': {error}"),
+                                            true,
+                                        ),
+                                    });
                                 }
                             }
                         }
@@ -897,9 +957,21 @@ impl ModalsComponent {
                                     ),
                                     ink_paths: None,
                                 };
-                                let _ = s.add_annotation(&annot);
-                                state.new_annot_text.clear();
-                                action = Some(ModalAction::DocumentModified);
+                                match s.add_annotation(&annot) {
+                                    Ok(_) => {
+                                        state.new_annot_text.clear();
+                                        action = Some(ModalAction::Notification(
+                                            "Comment added. Save the PDF to persist it.".to_string(),
+                                            false,
+                                        ));
+                                    }
+                                    Err(error) => {
+                                        action = Some(ModalAction::Notification(
+                                            format!("Failed to add comment: {error}"),
+                                            true,
+                                        ));
+                                    }
+                                }
                             }
                         }
 
@@ -930,8 +1002,21 @@ impl ModalsComponent {
                                 }
                             });
                             if let Some(id) = to_delete {
-                                let _ = s.delete_annotation(id);
-                                action = Some(ModalAction::DocumentModified);
+                                action = Some(match s.delete_annotation(id) {
+                                    Ok(true) => ModalAction::Notification(
+                                        "Annotation deleted. Save the PDF to persist it."
+                                            .to_string(),
+                                        false,
+                                    ),
+                                    Ok(false) => ModalAction::Notification(
+                                        "Annotation was already absent.".to_string(),
+                                        true,
+                                    ),
+                                    Err(error) => ModalAction::Notification(
+                                        format!("Failed to delete annotation: {error}"),
+                                        true,
+                                    ),
+                                });
                             }
                         }
                     });
@@ -1046,9 +1131,22 @@ impl ModalsComponent {
                                     ),
                                     ink_paths: None,
                                 };
-                                let _ = s.add_annotation(&annot);
-                                close_signature = true;
-                                action = Some(ModalAction::DocumentModified);
+                                match s.add_annotation(&annot) {
+                                    Ok(_) => {
+                                        close_signature = true;
+                                        action = Some(ModalAction::Notification(
+                                            "Signature stamp added. Save the PDF to persist it."
+                                                .to_string(),
+                                            false,
+                                        ));
+                                    }
+                                    Err(error) => {
+                                        action = Some(ModalAction::Notification(
+                                            format!("Failed to add signature stamp: {error}"),
+                                            true,
+                                        ));
+                                    }
+                                }
                             }
                         } else {
                             ui.label(
@@ -1167,7 +1265,7 @@ impl ModalsComponent {
                                     )
                                     .clicked()
                                 {
-                                    let _ = s.add_text_to_page(
+                                    match s.add_text_to_page(
                                         target_idx,
                                         &state.edit_text_input,
                                         state.edit_text_x,
@@ -1175,9 +1273,22 @@ impl ModalsComponent {
                                         rustpdf_fonts::StandardFont::Helvetica,
                                         state.edit_text_size,
                                         [0.1, 0.1, 0.1],
-                                    );
-                                    close_edit = true;
-                                    action = Some(ModalAction::DocumentModified);
+                                    ) {
+                                        Ok(()) => {
+                                            close_edit = true;
+                                            action = Some(ModalAction::Notification(
+                                                "Text added. Save the PDF to persist it."
+                                                    .to_string(),
+                                                false,
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            action = Some(ModalAction::Notification(
+                                                format!("Failed to add text: {error}"),
+                                                true,
+                                            ));
+                                        }
+                                    }
                                 }
                             }
 
@@ -1197,13 +1308,34 @@ impl ModalsComponent {
                                     .button(format!("🔄 Replace Text in Page {}", target_idx + 1))
                                     .clicked()
                                 {
-                                    let _ = s.search_and_replace_text(
+                                    match s.search_and_replace_text(
                                         target_idx,
                                         &state.edit_find_query,
                                         &state.edit_replace_query,
-                                    );
-                                    close_edit = true;
-                                    action = Some(ModalAction::DocumentModified);
+                                    ) {
+                                        Ok(0) => {
+                                            action = Some(ModalAction::Notification(
+                                                "No matching text found on this page."
+                                                    .to_string(),
+                                                true,
+                                            ));
+                                        }
+                                        Ok(count) => {
+                                            close_edit = true;
+                                            action = Some(ModalAction::Notification(
+                                                format!(
+                                                    "Replaced {count} occurrence(s). Save the PDF to persist the change."
+                                                ),
+                                                false,
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            action = Some(ModalAction::Notification(
+                                                format!("Text replacement failed: {error}"),
+                                                true,
+                                            ));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1263,16 +1395,29 @@ impl ModalsComponent {
                                 {
                                     if let Some(ref img_p) = state.edit_image_path {
                                         if let Ok(bytes) = std::fs::read(img_p) {
-                                            let _ = s.insert_image_to_page(
+                                            match s.insert_image_to_page(
                                                 target_idx,
                                                 &bytes,
                                                 state.edit_image_x,
                                                 state.edit_image_y,
                                                 state.edit_image_w,
                                                 state.edit_image_h,
-                                            );
-                                            close_edit = true;
-                                            action = Some(ModalAction::DocumentModified);
+                                            ) {
+                                                Ok(()) => {
+                                                    close_edit = true;
+                                                    action = Some(ModalAction::Notification(
+                                                        "Image inserted. Save the PDF to persist it."
+                                                            .to_string(),
+                                                        false,
+                                                    ));
+                                                }
+                                                Err(error) => {
+                                                    action = Some(ModalAction::Notification(
+                                                        format!("Failed to insert image: {error}"),
+                                                        true,
+                                                    ));
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1317,15 +1462,28 @@ impl ModalsComponent {
                                     } else {
                                         vec![target_idx]
                                     };
-                                    let _ = s.add_watermark(
+                                    match s.add_watermark(
                                         &pages,
                                         &state.edit_watermark_text,
                                         state.edit_watermark_size,
                                         [0.75, 0.75, 0.85],
                                         state.edit_watermark_rotation,
-                                    );
-                                    close_edit = true;
-                                    action = Some(ModalAction::DocumentModified);
+                                    ) {
+                                        Ok(()) => {
+                                            close_edit = true;
+                                            action = Some(ModalAction::Notification(
+                                                "Watermark added. Save the PDF to persist it."
+                                                    .to_string(),
+                                                false,
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            action = Some(ModalAction::Notification(
+                                                format!("Failed to add watermark: {error}"),
+                                                true,
+                                            ));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1361,15 +1519,28 @@ impl ModalsComponent {
                                     } else {
                                         vec![target_idx]
                                     };
-                                    let _ = s.add_header_footer(
+                                    match s.add_header_footer(
                                         &pages,
                                         Some(&state.edit_header_text),
                                         Some(&state.edit_footer_text),
                                         10.0,
                                         [0.3, 0.3, 0.3],
-                                    );
-                                    close_edit = true;
-                                    action = Some(ModalAction::DocumentModified);
+                                    ) {
+                                        Ok(()) => {
+                                            close_edit = true;
+                                            action = Some(ModalAction::Notification(
+                                                "Header and footer added. Save the PDF to persist them."
+                                                    .to_string(),
+                                                false,
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            action = Some(ModalAction::Notification(
+                                                format!("Failed to add header/footer: {error}"),
+                                                true,
+                                            ));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1438,14 +1609,27 @@ impl ModalsComponent {
                                     } else {
                                         vec![target_idx]
                                     };
-                                    let _ = s.add_bates_numbering(
+                                    match s.add_bates_numbering(
                                         &pages,
                                         &state.edit_bates_prefix,
                                         state.edit_bates_start,
                                         6,
-                                    );
-                                    close_edit = true;
-                                    action = Some(ModalAction::DocumentModified);
+                                    ) {
+                                        Ok(()) => {
+                                            close_edit = true;
+                                            action = Some(ModalAction::Notification(
+                                                "Bates numbering added. Save the PDF to persist it."
+                                                    .to_string(),
+                                                false,
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            action = Some(ModalAction::Notification(
+                                                format!("Failed to add Bates numbering: {error}"),
+                                                true,
+                                            ));
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1464,9 +1648,22 @@ impl ModalsComponent {
                                     .clicked()
                                 {
                                     let rect = rustpdf_geom::Rect::new(72.0, 700.0, 300.0, 730.0);
-                                    let _ = s.add_link(target_idx, rect, &state.edit_link_url);
-                                    close_edit = true;
-                                    action = Some(ModalAction::DocumentModified);
+                                    match s.add_link(target_idx, rect, &state.edit_link_url) {
+                                        Ok(()) => {
+                                            close_edit = true;
+                                            action = Some(ModalAction::Notification(
+                                                "Hyperlink added. Save the PDF to persist it."
+                                                    .to_string(),
+                                                false,
+                                            ));
+                                        }
+                                        Err(error) => {
+                                            action = Some(ModalAction::Notification(
+                                                format!("Failed to add hyperlink: {error}"),
+                                                true,
+                                            ));
+                                        }
+                                    }
                                 }
                             }
                         }
