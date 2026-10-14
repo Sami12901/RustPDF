@@ -257,10 +257,19 @@ mod tests {
 
         for (name, value, read_only) in fields {
             let mut field = lopdf::Dictionary::new();
-            field.set(b"T", Object::String(name.as_bytes().to_vec(), StringFormat::Literal));
+            field.set(
+                b"T",
+                Object::String(name.as_bytes().to_vec(), StringFormat::Literal),
+            );
             field.set(b"FT", Object::Name(b"Tx".to_vec()));
-            field.set(b"V", Object::String(value.as_bytes().to_vec(), StringFormat::Literal));
-            field.set(b"DV", Object::String(b"default".to_vec(), StringFormat::Literal));
+            field.set(
+                b"V",
+                Object::String(value.as_bytes().to_vec(), StringFormat::Literal),
+            );
+            field.set(
+                b"DV",
+                Object::String(b"default".to_vec(), StringFormat::Literal),
+            );
             field.set(b"Ff", Object::Integer(if *read_only { 1 } else { 0 }));
             let id = doc.add_object(field);
             field_ids.push(id);
@@ -287,20 +296,40 @@ mod tests {
             set_field_value(&mut doc, "locked", "changed"),
             Err(FormError::ReadOnlyField(name)) if name == "locked"
         ));
-        let value = doc.get_object(ids[0]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        let value = doc
+            .get_object(ids[0])
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"V")
+            .unwrap();
         assert_eq!(to_string_lossy(value).as_deref(), Some("original"));
     }
 
     #[test]
     fn reset_all_fields_is_atomic_when_a_field_is_read_only() {
-        let (mut doc, ids) =
-            make_form_doc(&[("editable", "original", false), ("locked", "protected", true)]);
+        let (mut doc, ids) = make_form_doc(&[
+            ("editable", "original", false),
+            ("locked", "protected", true),
+        ]);
         assert!(matches!(
             reset_all_fields(&mut doc),
             Err(FormError::ReadOnlyField(name)) if name == "locked"
         ));
-        let first = doc.get_object(ids[0]).unwrap().as_dict().unwrap().get(b"V").unwrap();
-        let second = doc.get_object(ids[1]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        let first = doc
+            .get_object(ids[0])
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"V")
+            .unwrap();
+        let second = doc
+            .get_object(ids[1])
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"V")
+            .unwrap();
         assert_eq!(to_string_lossy(first).as_deref(), Some("original"));
         assert_eq!(to_string_lossy(second).as_deref(), Some("protected"));
     }
