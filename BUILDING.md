@@ -27,6 +27,9 @@ This document covers prerequisites, build commands, and platform targets for **R
 
 ## Build Targets
 
+The workspace release version is defined once in `[workspace.package].version` in `Cargo.toml`; all application and crate packages inherit it. Release builds use `--locked` so the committed `Cargo.lock` must match the dependency graph.
+
+
 ### 1. Desktop Application (`apps/rustpdf`)
 
 To run in debug mode during development:
