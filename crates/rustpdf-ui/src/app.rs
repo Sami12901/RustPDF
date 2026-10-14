@@ -2026,33 +2026,107 @@ impl App for RustPdfApp {
         if let Some(act) = modal_action {
             match act {
                 ModalAction::Combine(inputs) => {
-                    let mut buffers = Vec::new();
-                    for p in inputs {
-                        if let Ok(b) = std::fs::read(&p) {
-                            buffers.push(b);
+                    if inputs.is_empty() {
+                        self.notify_error("Select at least one PDF to combine.");
+                    } else {
+                        let input_count = inputs.len();
+                        let mut buffers = Vec::with_capacity(input_count);
+                        let mut read_error = None;
+
+                        for path in inputs {
+                            match std::fs::read(&path) {
+                                Ok(bytes) => buffers.push(bytes),
+                                Err(error) => {
+                                    read_error = Some(format!(
+                                        "Failed to read '{}': {error}",
+                                        path.display()
+                                    ));
+                                    break;
+                                }
+                            }
                         }
-                    }
-                    if let Ok(merged) = rustpdf_organize::combine_documents(&buffers) {
-                        if let Ok(session) = DocumentSession::open_mem(merged, None) {
-                            self.sessions.push(session);
-                            self.active_tab = Some(self.sessions.len() - 1);
-                            self.active_workspace = ActiveWorkspace::Viewer;
+
+                        if let Some(error) = read_error {
+                            self.notify_error(error);
+                        } else {
+                            match rustpdf_organize::combine_documents(&buffers) {
+                                Ok(merged) => match DocumentSession::open_mem(merged, None) {
+                                    Ok(session) => {
+                                        let doc_id = session.id;
+                                        self.sessions.push(session);
+                                        self.active_tab = Some(self.sessions.len() - 1);
+                                        self.active_workspace = ActiveWorkspace::Viewer;
+                                        self.viewer_state.active_doc_id = Some(doc_id);
+                                        self.viewer_state.current_page = 0;
+                                        self.notify_success(format!(
+                                            "Combined {input_count} PDFs into a new document."
+                                        ));
+                                    }
+                                    Err(error) => self.notify_error(format!(
+                                        "Could not open the combined PDF: {error}"
+                                    )),
+                                },
+                                Err(error) => self.notify_error(format!(
+                                    "Failed to combine PDFs: {error}"
+                                )),
+                            }
                         }
                     }
                 }
                 ModalAction::Split(n, out_dir) => {
-                    if let Some(session) = self.active_session_mut() {
-                        if let Ok(chunks) = rustpdf_organize::split_document(
-                            &session.raw_bytes,
+                    let source = self
+                        .active_session()
+                        .map(|session| (session.raw_bytes.as_ref().clone(), session.display_name.clone()));
+
+                    if let Some((bytes, display_name)) = source {
+                        match rustpdf_organize::split_document(
+                            &bytes,
                             rustpdf_organize::SplitRule::EveryN(n),
                         ) {
-                            let _ = std::fs::create_dir_all(&out_dir);
-                            for (i, chunk) in chunks.iter().enumerate() {
-                                let part_path =
-                                    out_dir.join(format!("split_part_{:03}.pdf", i + 1));
-                                let _ = rustpdf_edit::save_atomic(&part_path, chunk);
-                            }
+                            Ok(chunks) => match std::fs::create_dir_all(&out_dir) {
+                                Ok(()) => {
+                                    let prefix = display_name.trim_end_matches(".pdf");
+                                    let mut saved = 0usize;
+                                    let mut save_error = None;
+                                    for (index, chunk) in chunks.iter().enumerate() {
+                                        let path = out_dir.join(format!(
+                                            "{prefix}_part_{:03}.pdf",
+                                            index + 1
+                                        ));
+                                        match rustpdf_edit::save_atomic(&path, chunk) {
+                                            Ok(()) => saved += 1,
+                                            Err(error) => {
+                                                save_error = Some(format!(
+                                                    "Failed to save '{}': {error}",
+                                                    path.display()
+                                                ));
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if let Some(error) = save_error {
+                                        self.notify_error(format!(
+                                            "Split export incomplete: saved {saved}/{} files. {error}",
+                                            chunks.len()
+                                        ));
+                                    } else {
+                                        self.notify_success(format!(
+                                            "Split PDF into {} files in {}.",
+                                            chunks.len(),
+                                            out_dir.display()
+                                        ));
+                                    }
+                                }
+                                Err(error) => self.notify_error(format!(
+                                    "Could not create output directory '{}': {error}",
+                                    out_dir.display()
+                                )),
+                            },
+                            Err(error) => self.notify_error(format!("Failed to split PDF: {error}")),
                         }
+                    } else {
+                        self.notify_error("Open a PDF before splitting it.");
                     }
                 }
                 ModalAction::ExecuteCommand(cmd) => match cmd.as_str() {
