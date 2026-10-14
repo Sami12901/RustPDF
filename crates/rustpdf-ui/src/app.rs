@@ -2214,20 +2214,17 @@ impl App for RustPdfApp {
                                         "Could not open the combined PDF: {error}"
                                     )),
                                 },
-                                Err(error) => {
-                                    self.notify_error(format!("Failed to combine PDFs: {error}"))
-                                }
+                                Err(error) => self.notify_error(format!(
+                                    "Failed to combine PDFs: {error}"
+                                )),
                             }
                         }
                     }
                 }
                 ModalAction::Split(n, out_dir) => {
-                    let source = self.active_session().map(|session| {
-                        (
-                            session.raw_bytes.as_ref().clone(),
-                            session.display_name.clone(),
-                        )
-                    });
+                    let source = self
+                        .active_session()
+                        .map(|session| (session.raw_bytes.as_ref().clone(), session.display_name.clone()));
 
                     if let Some((bytes, display_name)) = source {
                         match rustpdf_organize::split_document(
@@ -2240,8 +2237,10 @@ impl App for RustPdfApp {
                                     let mut saved = 0usize;
                                     let mut save_error = None;
                                     for (index, chunk) in chunks.iter().enumerate() {
-                                        let path = out_dir
-                                            .join(format!("{prefix}_part_{:03}.pdf", index + 1));
+                                        let path = out_dir.join(format!(
+                                            "{prefix}_part_{:03}.pdf",
+                                            index + 1
+                                        ));
                                         match rustpdf_edit::save_atomic(&path, chunk) {
                                             Ok(()) => saved += 1,
                                             Err(error) => {
