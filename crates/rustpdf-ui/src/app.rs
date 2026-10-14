@@ -1203,12 +1203,9 @@ impl App for RustPdfApp {
                                 self.modals_state.show_annotations_manager = true;
                             }
                             crate::tools_panel::ToolAction::ScanOcr => {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("Document / Image", &["pdf", "png", "jpg", "jpeg"])
-                                    .pick_file()
-                                {
-                                    self.open_file(path);
-                                }
+                                self.notify_error(
+                                    "OCR is not available yet. No document was opened or modified.",
+                                );
                             }
                             crate::tools_panel::ToolAction::ProtectPdf
                             | crate::tools_panel::ToolAction::OpenProtectDialog => {
@@ -1216,7 +1213,7 @@ impl App for RustPdfApp {
                             }
                             crate::tools_panel::ToolAction::RedactPdf => {
                                 // Priority 5: Distinguish Redaction from Cover-up
-                                log::warn!("Redaction is unsupported in v0.4.0. True sanitization is planned for a future release.");
+                                self.notify_error("Secure redaction is not available yet; no document content was changed.");
                             }
                             crate::tools_panel::ToolAction::CompressPdf => {
                                 if let Some(s) = self.active_session_mut() {
@@ -1256,7 +1253,7 @@ impl App for RustPdfApp {
                                 self.notify_success("Stamp tool active: click anywhere on page to stamp");
                             }
                             crate::tools_panel::ToolAction::UseCertificate => {
-                                log::warn!("Digital certificate signing is planned for a future release.");
+                                self.notify_error("Digital certificate signing is not available yet.");
                             }
                             crate::tools_panel::ToolAction::PrintProduction => {
                                 self.modals_state.show_properties = true;
@@ -1265,7 +1262,7 @@ impl App for RustPdfApp {
                                 self.modals_state.show_properties = true;
                             }
                             crate::tools_panel::ToolAction::CompareFiles => {
-                                log::warn!("File comparison is planned for a future release.");
+                                self.notify_error("File comparison is not available yet.");
                             }
                             crate::tools_panel::ToolAction::GuidedActions => {
                                 self.active_workspace = ActiveWorkspace::Home;
