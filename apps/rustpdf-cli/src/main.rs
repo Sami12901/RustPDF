@@ -135,6 +135,13 @@ fn main() -> Result<()> {
                 if let Some(p) = session.model.pages.get(idx) {
                     println!("[Page {} ({} x {} pt)]", idx + 1, p.width, p.height);
                 }
+
+                let text = session
+                    .cos_doc
+                    .inner()
+                    .extract_text(&[(idx + 1) as u32])
+                    .with_context(|| format!("Failed to extract text from page {}", idx + 1))?;
+                println!("{text}");
             }
         }
 

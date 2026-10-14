@@ -8,7 +8,7 @@
   <p align="center">
     <a href="https://github.com/Sami12901/RustPDF/actions"><img alt="CI Build Status" src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square&logo=github"></a>
     <a href="LICENSE-MIT"><img alt="License: MIT OR Apache-2.0" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue?style=flat-square"></a>
-    <img alt="Written in Rust" src="https://img.shields.io/badge/Rust-1.80%2B-orange?style=flat-square&logo=rust">
+    <img alt="Written in Rust" src="https://img.shields.io/badge/Rust-1.95%2B-orange?style=flat-square&logo=rust">
     <img alt="Cross-Platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?style=flat-square">
     <img alt="Zero Telemetry" src="https://img.shields.io/badge/telemetry-100%25%20offline-success?style=flat-square">
   </p>
@@ -132,7 +132,7 @@ cargo install --git https://github.com/Sami12901/RustPDF.git rustpdf rustpdf-cli
 ## 🚀 Quick Start
 
 ### Prerequisites
-- [Rust 1.80+](https://rustup.rs/) (stable toolchain)
+- [Rust 1.95+](https://rustup.rs/) (stable toolchain)
 - Cargo package manager
 
 ### Run Desktop GUI

@@ -18,3 +18,4 @@ image = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+rustpdf-fonts = { workspace = true }

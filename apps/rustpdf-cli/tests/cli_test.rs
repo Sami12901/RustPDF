@@ -1,6 +1,7 @@
 use lopdf::Document;
 use rustpdf_export::create_blank_pdf;
 use rustpdf_organize::{combine_documents, split_document, SplitRule};
+use std::process::Command;
 
 #[test]
 fn test_cli_workflows_end_to_end() {
@@ -38,4 +39,87 @@ fn test_cli_workflows_end_to_end() {
             assert_eq!(loaded.get_pages().len(), 2);
         }
     }
+}
+
+#[test]
+fn test_text_command_extracts_all_pages_and_selected_page() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("text-fixture.pdf");
+
+    let bytes = create_blank_pdf(2, 612.0, 792.0, "Text Extraction Fixture").unwrap();
+    let mut pdf = Document::load_mem(&bytes).unwrap();
+    rustpdf_edit::add_text_to_page(
+        &mut pdf,
+        0,
+        "FIRST_PAGE_MARKER",
+        72.0,
+        700.0,
+        rustpdf_fonts::StandardFont::Helvetica,
+        12.0,
+        [0.0, 0.0, 0.0],
+    )
+    .unwrap();
+    rustpdf_edit::add_text_to_page(
+        &mut pdf,
+        1,
+        "SECOND_PAGE_MARKER",
+        72.0,
+        700.0,
+        rustpdf_fonts::StandardFont::Helvetica,
+        12.0,
+        [0.0, 0.0, 0.0],
+    )
+    .unwrap();
+
+    let mut encoded = Vec::new();
+    pdf.save_to(&mut encoded).unwrap();
+    std::fs::write(&input, encoded).unwrap();
+
+    let all_pages = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args(["text", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        all_pages.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&all_pages.stderr)
+    );
+    let all_stdout = String::from_utf8_lossy(&all_pages.stdout);
+    assert!(all_stdout.contains("FIRST_PAGE_MARKER"), "{all_stdout}");
+    assert!(all_stdout.contains("SECOND_PAGE_MARKER"), "{all_stdout}");
+
+    let selected_page = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args(["text", input.to_str().unwrap(), "--page", "2"])
+        .output()
+        .unwrap();
+    assert!(
+        selected_page.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&selected_page.stderr)
+    );
+    let selected_stdout = String::from_utf8_lossy(&selected_page.stdout);
+    assert!(
+        selected_stdout.contains("SECOND_PAGE_MARKER"),
+        "{selected_stdout}"
+    );
+    assert!(
+        !selected_stdout.contains("FIRST_PAGE_MARKER"),
+        "{selected_stdout}"
+    );
+}
+
+#[test]
+fn test_text_command_rejects_page_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("one-page.pdf");
+    let bytes = create_blank_pdf(1, 612.0, 792.0, "Page Validation").unwrap();
+    std::fs::write(&input, bytes).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args(["text", input.to_str().unwrap(), "--page", "0"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("out of range"));
 }

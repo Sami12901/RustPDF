@@ -109,101 +109,105 @@ impl AppTheme {
         }
     }
 
+    /// Resolves this preference to a concrete theme.
+    ///
+    /// If the OS theme cannot be detected while System is selected, dark mode
+    /// is used as a stable fallback.
     pub fn is_dark(&self) -> bool {
+        self.is_dark_for(None)
+    }
+
+    /// Resolves this preference using the system theme reported by egui.
+    pub fn is_dark_for(&self, system_theme: Option<egui::Theme>) -> bool {
         match self.mode {
             ThemeMode::Dark => true,
             ThemeMode::Light => false,
-            ThemeMode::System => true, // Fallback default dark
+            ThemeMode::System => system_theme.unwrap_or(egui::Theme::Dark) == egui::Theme::Dark,
         }
     }
 
     pub fn bg_color(&self) -> Color32 {
-        if self.is_dark() {
-            Color32::from_rgb(self.dark_bg[0], self.dark_bg[1], self.dark_bg[2])
+        self.bg_color_for(None)
+    }
+
+    pub fn bg_color_for(&self, system_theme: Option<egui::Theme>) -> Color32 {
+        let palette = if self.is_dark_for(system_theme) {
+            self.dark_bg
         } else {
-            Color32::from_rgb(self.light_bg[0], self.light_bg[1], self.light_bg[2])
-        }
+            self.light_bg
+        };
+        Color32::from_rgb(palette[0], palette[1], palette[2])
     }
 
     pub fn panel_color(&self) -> Color32 {
-        if self.is_dark() {
-            Color32::from_rgb(self.dark_panel[0], self.dark_panel[1], self.dark_panel[2])
+        self.panel_color_for(None)
+    }
+
+    pub fn panel_color_for(&self, system_theme: Option<egui::Theme>) -> Color32 {
+        let palette = if self.is_dark_for(system_theme) {
+            self.dark_panel
         } else {
-            Color32::from_rgb(
-                self.light_panel[0],
-                self.light_panel[1],
-                self.light_panel[2],
-            )
-        }
+            self.light_panel
+        };
+        Color32::from_rgb(palette[0], palette[1], palette[2])
     }
 
     pub fn surface_color(&self) -> Color32 {
-        if self.is_dark() {
-            Color32::from_rgb(
-                self.dark_surface[0],
-                self.dark_surface[1],
-                self.dark_surface[2],
-            )
+        self.surface_color_for(None)
+    }
+
+    pub fn surface_color_for(&self, system_theme: Option<egui::Theme>) -> Color32 {
+        let palette = if self.is_dark_for(system_theme) {
+            self.dark_surface
         } else {
-            Color32::from_rgb(
-                self.light_surface[0],
-                self.light_surface[1],
-                self.light_surface[2],
-            )
-        }
+            self.light_surface
+        };
+        Color32::from_rgb(palette[0], palette[1], palette[2])
     }
 
     pub fn border_color(&self) -> Color32 {
-        if self.is_dark() {
-            Color32::from_rgb(
-                self.dark_border[0],
-                self.dark_border[1],
-                self.dark_border[2],
-            )
+        self.border_color_for(None)
+    }
+
+    pub fn border_color_for(&self, system_theme: Option<egui::Theme>) -> Color32 {
+        let palette = if self.is_dark_for(system_theme) {
+            self.dark_border
         } else {
-            Color32::from_rgb(
-                self.light_border[0],
-                self.light_border[1],
-                self.light_border[2],
-            )
-        }
+            self.light_border
+        };
+        Color32::from_rgb(palette[0], palette[1], palette[2])
     }
 
     pub fn text_primary(&self) -> Color32 {
-        if self.is_dark() {
-            Color32::from_rgb(
-                self.dark_text_primary[0],
-                self.dark_text_primary[1],
-                self.dark_text_primary[2],
-            )
+        self.text_primary_for(None)
+    }
+
+    pub fn text_primary_for(&self, system_theme: Option<egui::Theme>) -> Color32 {
+        let palette = if self.is_dark_for(system_theme) {
+            self.dark_text_primary
         } else {
-            Color32::from_rgb(
-                self.light_text_primary[0],
-                self.light_text_primary[1],
-                self.light_text_primary[2],
-            )
-        }
+            self.light_text_primary
+        };
+        Color32::from_rgb(palette[0], palette[1], palette[2])
     }
 
     pub fn text_secondary(&self) -> Color32 {
-        if self.is_dark() {
-            Color32::from_rgb(
-                self.dark_text_secondary[0],
-                self.dark_text_secondary[1],
-                self.dark_text_secondary[2],
-            )
+        self.text_secondary_for(None)
+    }
+
+    pub fn text_secondary_for(&self, system_theme: Option<egui::Theme>) -> Color32 {
+        let palette = if self.is_dark_for(system_theme) {
+            self.dark_text_secondary
         } else {
-            Color32::from_rgb(
-                self.light_text_secondary[0],
-                self.light_text_secondary[1],
-                self.light_text_secondary[2],
-            )
-        }
+            self.light_text_secondary
+        };
+        Color32::from_rgb(palette[0], palette[1], palette[2])
     }
 
     /// Injects theme into egui Visuals.
     pub fn apply_to_egui(&self, ctx: &Context) {
-        let is_dark = self.is_dark();
+        let system_theme = ctx.system_theme();
+        let is_dark = self.is_dark_for(system_theme);
         let mut visuals = if is_dark {
             Visuals::dark()
         } else {
@@ -211,12 +215,12 @@ impl AppTheme {
         };
 
         let accent = self.active_accent();
-        let bg = self.bg_color();
-        let panel = self.panel_color();
-        let surface = self.surface_color();
-        let border = self.border_color();
-        let text_p = self.text_primary();
-        let text_s = self.text_secondary();
+        let bg = self.bg_color_for(system_theme);
+        let panel = self.panel_color_for(system_theme);
+        let surface = self.surface_color_for(system_theme);
+        let border = self.border_color_for(system_theme);
+        let text_p = self.text_primary_for(system_theme);
+        let text_s = self.text_secondary_for(system_theme);
 
         visuals.window_fill = panel;
         visuals.panel_fill = bg;
@@ -294,5 +298,63 @@ fn dirs_fallback() -> PathBuf {
         PathBuf::from(base).join(".config").join("rustpdf")
     } else {
         PathBuf::from(".")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn system_mode_tracks_detected_os_theme() {
+        let theme = AppTheme {
+            mode: ThemeMode::System,
+            ..AppTheme::default()
+        };
+
+        assert!(theme.is_dark_for(Some(egui::Theme::Dark)));
+        assert!(!theme.is_dark_for(Some(egui::Theme::Light)));
+    }
+
+    #[test]
+    fn system_mode_falls_back_to_dark_when_os_theme_is_unavailable() {
+        let theme = AppTheme {
+            mode: ThemeMode::System,
+            ..AppTheme::default()
+        };
+
+        assert!(theme.is_dark_for(None));
+    }
+
+    #[test]
+    fn explicit_modes_override_detected_os_theme() {
+        let dark = AppTheme {
+            mode: ThemeMode::Dark,
+            ..AppTheme::default()
+        };
+        let light = AppTheme {
+            mode: ThemeMode::Light,
+            ..AppTheme::default()
+        };
+
+        assert!(dark.is_dark_for(Some(egui::Theme::Light)));
+        assert!(!light.is_dark_for(Some(egui::Theme::Dark)));
+    }
+
+    #[test]
+    fn system_mode_uses_the_corresponding_color_palette() {
+        let theme = AppTheme {
+            mode: ThemeMode::System,
+            ..AppTheme::default()
+        };
+
+        assert_eq!(
+            theme.bg_color_for(Some(egui::Theme::Light)),
+            Color32::from_rgb(theme.light_bg[0], theme.light_bg[1], theme.light_bg[2])
+        );
+        assert_eq!(
+            theme.bg_color_for(Some(egui::Theme::Dark)),
+            Color32::from_rgb(theme.dark_bg[0], theme.dark_bg[1], theme.dark_bg[2])
+        );
     }
 }
