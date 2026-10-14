@@ -261,12 +261,18 @@ impl DocumentSession {
         Ok(())
     }
 
-    /// Removes password protection and restrictions.
-    pub fn remove_protection(&mut self) -> Result<(), EngineError> {
+    /// Removes password protection only when the security handler can safely decrypt it.
+    ///
+    /// The current implementation deliberately refuses encrypted PDFs rather than
+    /// deleting their /Encrypt dictionary without decrypting strings and streams.
+    /// Returns `Ok(false)` when the PDF is not encrypted.
+    pub fn remove_protection(&mut self) -> Result<bool, EngineError> {
         let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_cos::security::remove_protection(self.cos_doc.inner_mut());
-        self.commit_in_memory_change("Remove protection", old_bytes)?;
-        Ok(())
+        let removed = rustpdf_cos::security::remove_protection(self.cos_doc.inner_mut())?;
+        if removed {
+            self.commit_in_memory_change("Remove protection", old_bytes)?;
+        }
+        Ok(removed)
     }
 
     /// Adds an embedded file attachment to the document.
