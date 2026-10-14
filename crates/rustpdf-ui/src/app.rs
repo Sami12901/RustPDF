@@ -285,6 +285,9 @@ impl RustPdfApp {
                 let file_size = session.raw_bytes.len();
                 let doc_id = session.id;
                 self.recent.add_or_update(p, page_count, file_size);
+                if let Some(error) = self.recent.last_error.take() {
+                    self.notify_error(error);
+                }
 
                 self.sessions.push(session);
                 self.active_tab = Some(self.sessions.len() - 1);
@@ -1915,7 +1918,11 @@ impl App for RustPdfApp {
         // 7. Central Workspace Panel
         CentralPanel::default().show(ui, |ui| match self.active_workspace {
             ActiveWorkspace::Home => {
-                if let Some(action) = HomeView::render(ui, &mut self.recent, accent) {
+                let home_action = HomeView::render(ui, &mut self.recent, accent);
+                if let Some(error) = self.recent.last_error.take() {
+                    self.notify_error(error);
+                }
+                if let Some(action) = home_action {
                     match action {
                         HomeAction::OpenPdf => {
                             if let Some(path) = rfd::FileDialog::new()
