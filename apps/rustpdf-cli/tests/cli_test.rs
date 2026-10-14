@@ -41,7 +41,6 @@ fn test_cli_workflows_end_to_end() {
     }
 }
 
-
 #[test]
 fn test_text_command_extracts_all_pages_and_selected_page() {
     let dir = tempfile::tempdir().unwrap();
@@ -99,7 +98,10 @@ fn test_text_command_extracts_all_pages_and_selected_page() {
         String::from_utf8_lossy(&selected_page.stderr)
     );
     let selected_stdout = String::from_utf8_lossy(&selected_page.stdout);
-    assert!(selected_stdout.contains("SECOND_PAGE_MARKER"), "{selected_stdout}");
+    assert!(
+        selected_stdout.contains("SECOND_PAGE_MARKER"),
+        "{selected_stdout}"
+    );
     assert!(
         !selected_stdout.contains("FIRST_PAGE_MARKER"),
         "{selected_stdout}"
