@@ -1897,9 +1897,8 @@ impl App for RustPdfApp {
                     let max_selected = selected_pages.iter().max().copied();
                     let first_selected = selected_pages.first().copied().or(Some(fallback_page));
 
-                    let mut operation_result: Option<
-                        Result<(), rustpdf_engine::EngineError>,
-                    > = None;
+                    let mut operation_result: Option<Result<(), rustpdf_engine::EngineError>> =
+                        None;
                     let mut operation_message = String::new();
                     let mut history_result = None;
                     let mut history_action = "";
@@ -1912,7 +1911,8 @@ impl App for RustPdfApp {
                         let doc_id = session.id;
                         match act {
                             OrganizerAction::Rotate(deg) => {
-                                operation_result = Some(session.rotate_pages(&operation_pages, deg));
+                                operation_result =
+                                    Some(session.rotate_pages(&operation_pages, deg));
                                 operation_message = format!(
                                     "Rotated {} page(s) by {deg} degrees.",
                                     operation_pages.len()
@@ -1927,11 +1927,8 @@ impl App for RustPdfApp {
                                 let insertion_index = max_selected
                                     .map_or(fallback_page + 1, |page| page + 1)
                                     .min(session.page_count());
-                                operation_result = Some(session.insert_blank_page(
-                                    insertion_index,
-                                    612.0,
-                                    792.0,
-                                ));
+                                operation_result =
+                                    Some(session.insert_blank_page(insertion_index, 612.0, 792.0));
                                 operation_message = format!(
                                     "Inserted a blank page at position {}.",
                                     insertion_index + 1
@@ -1940,8 +1937,7 @@ impl App for RustPdfApp {
                             OrganizerAction::Duplicate => {
                                 if let Some(first) = first_selected {
                                     operation_result = Some(session.duplicate_page(first));
-                                    operation_message =
-                                        format!("Duplicated page {}.", first + 1);
+                                    operation_message = format!("Duplicated page {}.", first + 1);
                                 } else {
                                     feedback = Some("Select a page to duplicate.".to_string());
                                 }
@@ -1951,10 +1947,8 @@ impl App for RustPdfApp {
                                     if first > 0 {
                                         operation_result =
                                             Some(session.move_page(first, first - 1));
-                                        operation_message = format!(
-                                            "Moved page {} one position left.",
-                                            first + 1
-                                        );
+                                        operation_message =
+                                            format!("Moved page {} one position left.", first + 1);
                                         selection_after = Some(first - 1);
                                     } else {
                                         feedback = Some(
@@ -1969,10 +1963,8 @@ impl App for RustPdfApp {
                                     if first + 1 < session.page_count() {
                                         operation_result =
                                             Some(session.move_page(first, first + 1));
-                                        operation_message = format!(
-                                            "Moved page {} one position right.",
-                                            first + 1
-                                        );
+                                        operation_message =
+                                            format!("Moved page {} one position right.", first + 1);
                                         selection_after = Some(first + 1);
                                     } else {
                                         feedback = Some(
@@ -1997,10 +1989,8 @@ impl App for RustPdfApp {
                         feedback = Some("Open a PDF before organizing pages.".to_string());
                     }
 
-                    let delete_succeeded = matches!(
-                        operation_result.as_ref(),
-                        Some(Ok(()))
-                    ) && matches!(act, OrganizerAction::Delete);
+                    let delete_succeeded = matches!(operation_result.as_ref(), Some(Ok(())))
+                        && matches!(act, OrganizerAction::Delete);
 
                     if operation_result.as_ref().is_some_and(Result::is_ok) {
                         if let Some(page) = selection_after {
