@@ -145,10 +145,7 @@ fn field_value_object(field: &FormField, value: &str) -> Object {
 
 /// Marks AcroForm widget appearances as needing regeneration.
 fn mark_need_appearances(doc: &mut LopdfDoc) -> Result<(), FormError> {
-    let root_id = doc
-        .trailer
-        .get(b"Root")?
-        .as_reference()?;
+    let root_id = doc.trailer.get(b"Root")?.as_reference()?;
     let acro_form_id = {
         let root = doc.get_object(root_id)?.as_dict()?;
         match root.get(b"AcroForm")? {
@@ -217,9 +214,7 @@ pub fn reset_field(doc: &mut LopdfDoc, field_name: &str) -> Result<(), FormError
 
     let mut working = doc.clone();
     {
-        let dict = working
-            .get_object_mut(target.object_id)?
-            .as_dict_mut()?;
+        let dict = working.get_object_mut(target.object_id)?.as_dict_mut()?;
         if let Some(value) = target.default_value.as_deref() {
             dict.set(b"V", field_value_object(&target, value));
         } else {
@@ -243,9 +238,7 @@ pub fn reset_all_fields(doc: &mut LopdfDoc) -> Result<usize, FormError> {
             continue;
         }
 
-        let dict = working
-            .get_object_mut(field.object_id)?
-            .as_dict_mut()?;
+        let dict = working.get_object_mut(field.object_id)?.as_dict_mut()?;
         if let Some(value) = field.default_value.as_deref() {
             dict.set(b"V", field_value_object(field, value));
         } else {
@@ -303,18 +296,21 @@ mod tests {
     fn make_text_form(read_only: bool) -> LopdfDoc {
         let mut doc = LopdfDoc::with_version("1.7");
         let mut field = lopdf::Dictionary::new();
-        field.set(b"T", Object::String(b"Name".to_vec(), StringFormat::Literal));
+        field.set(
+            b"T",
+            Object::String(b"Name".to_vec(), StringFormat::Literal),
+        );
         field.set(b"FT", Object::Name(b"Tx".to_vec()));
         field.set(b"V", Object::String(b"Old".to_vec(), StringFormat::Literal));
-        field.set(b"DV", Object::String(b"Default".to_vec(), StringFormat::Literal));
+        field.set(
+            b"DV",
+            Object::String(b"Default".to_vec(), StringFormat::Literal),
+        );
         field.set(b"Ff", Object::Integer(if read_only { 1 } else { 0 }));
         let field_id = doc.add_object(field);
 
         let mut acro_form = lopdf::Dictionary::new();
-        acro_form.set(
-            b"Fields",
-            Object::Array(vec![Object::Reference(field_id)]),
-        );
+        acro_form.set(b"Fields", Object::Array(vec![Object::Reference(field_id)]));
         let acro_form_id = doc.add_object(acro_form);
 
         let mut catalog = lopdf::Dictionary::new();
@@ -369,10 +365,8 @@ mod tests {
     #[test]
     fn test_import_is_atomic_when_any_field_is_invalid() {
         let mut doc = make_text_form(false);
-        let result = import_form_data_json(
-            &mut doc,
-            r#"{"Name":"Changed","ZMissing":"No field"}"#,
-        );
+        let result =
+            import_form_data_json(&mut doc, r#"{"Name":"Changed","ZMissing":"No field"}"#);
         assert_eq!(
             result,
             Err(FormError::FieldNotFound("ZMissing".to_string()))
