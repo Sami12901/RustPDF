@@ -1697,6 +1697,13 @@ impl App for RustPdfApp {
                         self.viewer_state.invalidate_doc(doc_id);
                     }
                 }
+                ModalAction::Notice { message, is_error } => {
+                    if is_error {
+                        self.notify_error(message);
+                    } else {
+                        self.notify_success(message);
+                    }
+                }
             }
         }
     }
