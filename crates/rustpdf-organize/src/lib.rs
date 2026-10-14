@@ -11,6 +11,8 @@ pub enum OrganizeError {
     IndexOutOfBounds(usize, usize),
     #[error("page index {0} appears more than once")]
     DuplicatePageIndex(usize),
+    #[error("at least one page must be selected for extraction")]
+    EmptyPageSelection,
     #[error("invalid rotation {0}: degrees must be a multiple of 90")]
     InvalidRotation(i32),
     #[error("lopdf error: {0}")]
@@ -270,6 +272,102 @@ fn set_document_page_order(doc: &mut LopdfDoc, page_ids: &[ObjectId]) -> Result<
     pages_dict.set(b"Count", Object::Integer(page_ids.len() as i64));
 
     Ok(())
+}
+
+/// Extracts the requested zero-based pages into a separate standalone PDF.
+///
+/// Pages are emitted in their original document order. Repeated selections are
+/// deduplicated; any out-of-range index rejects the operation without modifying
+/// the caller's original bytes.
+pub fn extract_pages(
+    doc_bytes: &[u8],
+    page_indices: &[usize],
+) -> Result<Vec<u8>, OrganizeError> {
+    if page_indices.is_empty() {
+        return Err(OrganizeError::EmptyPageSelection);
+    }
+
+    let mut doc = LopdfDoc::load_mem(doc_bytes)?;
+    let total = doc.get_pages().len();
+    let mut selected = std::collections::BTreeSet::new();
+
+    for &index in page_indices {
+        if index >= total {
+            return Err(OrganizeError::IndexOutOfBounds(index, total));
+        }
+        selected.insert(index);
+    }
+
+    let to_delete: Vec<u32> = (0..total)
+        .filter(|index| !selected.contains(index))
+        .map(|index| (index + 1) as u32)
+        .collect();
+
+    if !to_delete.is_empty() {
+        doc.delete_pages(&to_delete);
+    }
+
+    if doc.get_pages().len() != selected.len() {
+        return Err(OrganizeError::CombineFailed(
+            "Extracted page count does not match the requested selection".to_string(),
+        ));
+    }
+
+    let mut output = Vec::new();
+    doc.save_to(&mut output)?;
+    Ok(output)
+}
+
+#[cfg(test)]
+mod extraction_tests {
+    use super::*;
+
+    #[test]
+    fn extract_pages_preserves_document_order_and_deduplicates_selection() {
+        let mut original = LopdfDoc::with_version("1.7");
+        for i in 0..4 {
+            insert_blank_page(&mut original, i, 612.0 + i as f32, 792.0).unwrap();
+        }
+        let mut source = Vec::new();
+        original.save_to(&mut source).unwrap();
+
+        let extracted = extract_pages(&source, &[3, 1, 1]).unwrap();
+        let extracted_doc = LopdfDoc::load_mem(&extracted).unwrap();
+        let pages = extracted_doc.get_pages();
+        assert_eq!(pages.len(), 2);
+
+        let widths: Vec<f32> = pages
+            .values()
+            .map(|id| {
+                let page = extracted_doc.get_object(*id).unwrap().as_dict().unwrap();
+                page.get(b"MediaBox")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()[2]
+                    .as_float()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(widths, vec![613.0, 615.0]);
+    }
+
+    #[test]
+    fn extract_pages_rejects_empty_or_out_of_range_selection() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        let mut source = Vec::new();
+        doc.save_to(&mut source).unwrap();
+
+        assert!(matches!(
+            extract_pages(&source, &[]),
+            Err(OrganizeError::EmptyPageSelection)
+        ));
+        assert!(matches!(
+            extract_pages(&source, &[1]),
+            Err(OrganizeError::IndexOutOfBounds(1, 1))
+        ));
+        assert_eq!(LopdfDoc::load_mem(&source).unwrap().get_pages().len(), 1);
+    }
 }
 
 /// Merges multiple PDF document byte buffers into a single combined PDF.
