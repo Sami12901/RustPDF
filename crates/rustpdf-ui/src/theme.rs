@@ -301,7 +301,6 @@ fn dirs_fallback() -> PathBuf {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,8 +328,14 @@ mod tests {
 
     #[test]
     fn explicit_modes_override_detected_os_theme() {
-        let dark = AppTheme { mode: ThemeMode::Dark, ..AppTheme::default() };
-        let light = AppTheme { mode: ThemeMode::Light, ..AppTheme::default() };
+        let dark = AppTheme {
+            mode: ThemeMode::Dark,
+            ..AppTheme::default()
+        };
+        let light = AppTheme {
+            mode: ThemeMode::Light,
+            ..AppTheme::default()
+        };
 
         assert!(dark.is_dark_for(Some(egui::Theme::Light)));
         assert!(!light.is_dark_for(Some(egui::Theme::Dark)));
@@ -338,7 +343,10 @@ mod tests {
 
     #[test]
     fn system_mode_uses_the_corresponding_color_palette() {
-        let theme = AppTheme { mode: ThemeMode::System, ..AppTheme::default() };
+        let theme = AppTheme {
+            mode: ThemeMode::System,
+            ..AppTheme::default()
+        };
 
         assert_eq!(
             theme.bg_color_for(Some(egui::Theme::Light)),
