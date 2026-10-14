@@ -45,8 +45,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libasound2-dev pkg-config
 
+      - name: Verify release tag matches workspace version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version="$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["version"])')"
+          tag="${GITHUB_REF_NAME#v}"
+          if [[ "$tag" != "$version" ]]; then
+            echo "Release tag v$tag does not match Cargo workspace version $version" >&2
+            exit 1
+          fi
+
+      - name: Test workspace
+        run: cargo test --locked --workspace
+
       - name: Build release binaries
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --locked --release --target ${{ matrix.target }}
 
       - name: Package Windows Artifacts
         if: runner.os == 'Windows'
@@ -58,6 +72,7 @@ jobs:
           Copy-Item scripts/RustPDF-Launcher.bat staging/
           Copy-Item README.md staging/
           Copy-Item LICENSE-MIT staging/
+          Copy-Item LICENSE-APACHE staging/
           Compress-Archive -Path staging/* -DestinationPath ${{ matrix.archive_name }} -Force
 
       - name: Package Unix Artifacts
@@ -68,13 +83,27 @@ jobs:
           cp target/${{ matrix.target }}/release/rustpdf-cli staging/
           cp README.md staging/
           cp LICENSE-MIT staging/
+          cp LICENSE-APACHE staging/
           tar -czvf ${{ matrix.archive_name }} -C staging .
+
+      - name: Generate SHA-256 checksum
+        shell: python
+        run: |
+          import hashlib
+          from pathlib import Path
+          artifact = Path("${{ matrix.archive_name }}")
+          digest = hashlib.sha256(artifact.read_bytes()).hexdigest().upper()
+          Path(f"{artifact.name}.sha256").write_text(
+              f"{digest}  {artifact.name}\\n", encoding="ascii"
+          )
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.archive_name }}
-          path: ${{ matrix.archive_name }}
+          path: |
+            ${{ matrix.archive_name }}
+            ${{ matrix.archive_name }}.sha256
 
   create-github-release:
     needs: build-and-release
