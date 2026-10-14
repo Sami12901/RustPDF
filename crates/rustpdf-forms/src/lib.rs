@@ -182,7 +182,10 @@ fn set_widget_appearance_state(
     }
     let (local_states, children) = {
         let field = doc.get_object(field_id)?.as_dict()?;
-        (normal_appearance_states(doc, field_id), all_child_ids(doc, field))
+        (
+            normal_appearance_states(doc, field_id),
+            all_child_ids(doc, field),
+        )
     };
 
     if let Some(states) = local_states {
