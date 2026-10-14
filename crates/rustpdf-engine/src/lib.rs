@@ -122,18 +122,11 @@ impl DocumentSession {
     /// Applies an edit to a cloned PDF and commits it only after serialization and
     /// model validation succeed. If the edit fails, the live document and history stay
     /// unchanged even when a low-level operation performed several mutations first.
-    fn mutate_transactionally<T, E, F>(
+    fn commit_candidate_document(
         &mut self,
         description: &str,
-        mutate: F,
-    ) -> Result<T, EngineError>
-    where
-        EngineError: From<E>,
-        F: FnOnce(&mut CosDoc) -> Result<T, E>,
-    {
-        let mut candidate = self.cos_doc.clone();
-        let output = mutate(&mut candidate)?;
-
+        mut candidate: CosDoc,
+    ) -> Result<(), EngineError> {
         let mut new_bytes = Vec::new();
         candidate.save_to(&mut new_bytes)?;
         let validated_doc = CosDoc::load_mem(&new_bytes)?;
@@ -145,6 +138,21 @@ impl DocumentSession {
         self.raw_bytes = Arc::new(new_bytes);
         self.model = validated_model;
         self.is_dirty = true;
+        Ok(())
+    }
+
+    fn mutate_transactionally<T, E, F>(
+        &mut self,
+        description: &str,
+        mutate: F,
+    ) -> Result<T, EngineError>
+    where
+        EngineError: From<E>,
+        F: FnOnce(&mut CosDoc) -> Result<T, E>,
+    {
+        let mut candidate = self.cos_doc.clone();
+        let output = mutate(&mut candidate)?;
+        self.commit_candidate_document(description, candidate)?;
         Ok(output)
     }
 
@@ -239,9 +247,10 @@ impl DocumentSession {
 
     /// Updates metadata and saves to in-memory tree.
     pub fn update_metadata(&mut self, new_meta: DocumentMetadata) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        new_meta.write_to_cos(&mut self.cos_doc);
-        self.commit_in_memory_change("Update metadata", old_bytes)
+        self.mutate_transactionally("Update metadata", |doc| {
+            new_meta.write_to_cos(doc);
+            Ok::<(), EngineError>(())
+        })
     }
 
     /// Adds an annotation and records in undo history.
@@ -249,18 +258,17 @@ impl DocumentSession {
         &mut self,
         annot: &rustpdf_annot::Annotation,
     ) -> Result<lopdf::ObjectId, EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        let id = rustpdf_annot::add_annotation(self.cos_doc.inner_mut(), annot)?;
-        self.commit_in_memory_change("Add annotation", old_bytes)?;
-        Ok(id)
+        self.mutate_transactionally("Add annotation", |doc| {
+            rustpdf_annot::add_annotation(doc.inner_mut(), annot)
+        })
     }
 
     /// Deletes an annotation by ID and records in undo history.
     pub fn delete_annotation(&mut self, annot_id: (u32, u16)) -> Result<bool, EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        let removed = rustpdf_annot::delete_annotation(self.cos_doc.inner_mut(), annot_id)?;
+        let mut candidate = self.cos_doc.clone();
+        let removed = rustpdf_annot::delete_annotation(candidate.inner_mut(), annot_id)?;
         if removed {
-            self.commit_in_memory_change("Delete annotation", old_bytes)?;
+            self.commit_candidate_document("Delete annotation", candidate)?;
         }
         Ok(removed)
     }
@@ -281,17 +289,18 @@ impl DocumentSession {
         field_name: &str,
         new_val: &str,
     ) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_forms::set_field_value(self.cos_doc.inner_mut(), field_name, new_val)?;
-        self.commit_in_memory_change("Edit form field", old_bytes)?;
-        Ok(())
+        self.mutate_transactionally("Edit form field", |doc| {
+            rustpdf_forms::set_field_value(doc.inner_mut(), field_name, new_val)
+        })
     }
 
     /// Resets all form fields and records in undo history.
     pub fn reset_form_fields(&mut self) -> Result<usize, EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        let count = rustpdf_forms::reset_all_fields(self.cos_doc.inner_mut())?;
-        self.commit_in_memory_change("Reset form fields", old_bytes)?;
+        let mut candidate = self.cos_doc.clone();
+        let count = rustpdf_forms::reset_all_fields(candidate.inner_mut())?;
+        if count > 0 {
+            self.commit_candidate_document("Reset form fields", candidate)?;
+        }
         Ok(count)
     }
 
@@ -334,10 +343,9 @@ impl DocumentSession {
         filename: &str,
         data: &[u8],
     ) -> Result<lopdf::ObjectId, EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        let id = rustpdf_model::add_attachment(self.cos_doc.inner_mut(), filename, data)?;
-        self.commit_in_memory_change("Add attachment", old_bytes)?;
-        Ok(id)
+        self.mutate_transactionally("Add attachment", |doc| {
+            rustpdf_model::add_attachment(doc.inner_mut(), filename, data)
+        })
     }
 
     /// Adds custom text to a page at (x, y) coordinates and commits to undo history.
