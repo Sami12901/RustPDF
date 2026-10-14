@@ -538,6 +538,84 @@ mod tests {
     }
 
     #[test]
+    fn insertion_flattens_nested_page_tree_without_losing_inherited_attributes() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        let resources_id = doc.add_object(Dictionary::new());
+
+        let top_pages_id = doc.new_object_id();
+        let nested_pages_id = doc.new_object_id();
+
+        let mut page_a = Dictionary::new();
+        page_a.set(b"Type", Object::Name(b"Page".to_vec()));
+        page_a.set(b"Parent", Object::Reference(nested_pages_id));
+        let page_a_id = doc.add_object(page_a);
+
+        let mut page_b = Dictionary::new();
+        page_b.set(b"Type", Object::Name(b"Page".to_vec()));
+        page_b.set(b"Parent", Object::Reference(nested_pages_id));
+        let page_b_id = doc.add_object(page_b);
+
+        let mut nested_pages = Dictionary::new();
+        nested_pages.set(b"Type", Object::Name(b"Pages".to_vec()));
+        nested_pages.set(b"Parent", Object::Reference(top_pages_id));
+        nested_pages.set(b"Count", Object::Integer(2));
+        nested_pages.set(
+            b"Kids",
+            Object::Array(vec![
+                Object::Reference(page_a_id),
+                Object::Reference(page_b_id),
+            ]),
+        );
+        nested_pages.set(
+            b"MediaBox",
+            Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(612),
+                Object::Integer(792),
+            ]),
+        );
+        nested_pages.set(b"Resources", Object::Reference(resources_id));
+        doc.set_object(nested_pages_id, nested_pages);
+
+        let mut top_pages = Dictionary::new();
+        top_pages.set(b"Type", Object::Name(b"Pages".to_vec()));
+        top_pages.set(b"Count", Object::Integer(2));
+        top_pages.set(b"Kids", Object::Array(vec![Object::Reference(nested_pages_id)]));
+        doc.set_object(top_pages_id, top_pages);
+
+        let mut catalog = Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        catalog.set(b"Pages", Object::Reference(top_pages_id));
+        let catalog_id = doc.add_object(catalog);
+        doc.trailer.set(b"Root", Object::Reference(catalog_id));
+
+        insert_blank_page(&mut doc, 1, 555.0, 777.0).unwrap();
+
+        let pages = doc.get_pages();
+        assert_eq!(pages.len(), 3);
+        let widths: Vec<f32> = pages
+            .values()
+            .map(|id| {
+                let page = doc.get_object(*id).unwrap().as_dict().unwrap();
+                assert!(page.get(b"Resources").is_ok());
+                page.get(b"MediaBox")
+                    .unwrap()
+                    .as_array()
+                    .unwrap()[2]
+                    .as_float()
+                    .unwrap()
+            })
+            .collect();
+        assert_eq!(widths, vec![612.0, 555.0, 612.0]);
+
+        let root = doc.get_object(top_pages_id).unwrap().as_dict().unwrap();
+        let kids = root.get(b"Kids").unwrap().as_array().unwrap();
+        assert_eq!(kids.len(), 3);
+        assert!(kids.iter().all(|child| child.as_reference().is_ok()));
+    }
+
+    #[test]
     fn test_delete_pages_validates_indices_and_deduplicates() {
         let mut doc = LopdfDoc::with_version("1.7");
         for i in 0..3 {
