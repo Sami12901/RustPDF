@@ -885,22 +885,32 @@ impl ModalsComponent {
                         ui.add_space(12.0);
                         if ui.button("Attach File...").clicked() {
                             if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                if let Ok(bytes) = std::fs::read(&path) {
-                                    let filename = path
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .to_string();
-                                    action = Some(match s.add_attachment(&filename, &bytes) {
-                                        Ok(_) => ModalAction::Notification(
-                                            format!("Attached '{filename}'. Save the PDF to persist it."),
-                                            false,
-                                        ),
-                                        Err(error) => ModalAction::Notification(
-                                            format!("Failed to attach '{filename}': {error}"),
+                                let filename = path
+                                    .file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string();
+                                match std::fs::read(&path) {
+                                    Ok(bytes) => {
+                                        action = Some(match s.add_attachment(&filename, &bytes) {
+                                            Ok(_) => ModalAction::Notification(
+                                                format!(
+                                                    "Attached '{filename}'. Save the PDF to persist it."
+                                                ),
+                                                false,
+                                            ),
+                                            Err(error) => ModalAction::Notification(
+                                                format!("Failed to attach '{filename}': {error}"),
+                                                true,
+                                            ),
+                                        });
+                                    }
+                                    Err(error) => {
+                                        action = Some(ModalAction::Notification(
+                                            format!("Failed to read attachment: {error}"),
                                             true,
-                                        ),
-                                    });
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -1563,19 +1573,58 @@ impl ModalsComponent {
                                 };
                                 ui.horizontal(|ui| {
                                     if ui.button("🍦 Warm Cream (#FFFDF0)").clicked() {
-                                        let _ = s.add_background(&pages, [1.0, 0.99, 0.94]);
-                                        close_edit = true;
-                                        action = Some(ModalAction::DocumentModified);
+                                        match s.add_background(&pages, [1.0, 0.99, 0.94]) {
+                                            Ok(()) => {
+                                                close_edit = true;
+                                                action = Some(ModalAction::Notification(
+                                                    "Background applied. Save the PDF to persist it."
+                                                        .to_string(),
+                                                    false,
+                                                ));
+                                            }
+                                            Err(error) => {
+                                                action = Some(ModalAction::Notification(
+                                                    format!("Failed to apply background: {error}"),
+                                                    true,
+                                                ));
+                                            }
+                                        }
                                     }
                                     if ui.button("🌫 Soft Gray (#F4F4F6)").clicked() {
-                                        let _ = s.add_background(&pages, [0.95, 0.95, 0.96]);
-                                        close_edit = true;
-                                        action = Some(ModalAction::DocumentModified);
+                                        match s.add_background(&pages, [0.95, 0.95, 0.96]) {
+                                            Ok(()) => {
+                                                close_edit = true;
+                                                action = Some(ModalAction::Notification(
+                                                    "Background applied. Save the PDF to persist it."
+                                                        .to_string(),
+                                                    false,
+                                                ));
+                                            }
+                                            Err(error) => {
+                                                action = Some(ModalAction::Notification(
+                                                    format!("Failed to apply background: {error}"),
+                                                    true,
+                                                ));
+                                            }
+                                        }
                                     }
                                     if ui.button("❄ Pure White (#FFFFFF)").clicked() {
-                                        let _ = s.add_background(&pages, [1.0, 1.0, 1.0]);
-                                        close_edit = true;
-                                        action = Some(ModalAction::DocumentModified);
+                                        match s.add_background(&pages, [1.0, 1.0, 1.0]) {
+                                            Ok(()) => {
+                                                close_edit = true;
+                                                action = Some(ModalAction::Notification(
+                                                    "Background applied. Save the PDF to persist it."
+                                                        .to_string(),
+                                                    false,
+                                                ));
+                                            }
+                                            Err(error) => {
+                                                action = Some(ModalAction::Notification(
+                                                    format!("Failed to apply background: {error}"),
+                                                    true,
+                                                ));
+                                            }
+                                        }
                                     }
                                 });
                             }
