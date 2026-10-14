@@ -228,9 +228,12 @@ fn main() -> Result<()> {
         }
 
         Commands::Extract { input, pages, out } => {
-            let bytes = fs::read(&input)?;
-            let doc = lopdf::Document::load_mem(&bytes)?;
-            let total = doc.get_pages().len();
+            let bytes = fs::read(&input)
+                .with_context(|| format!("Failed to read '{}'", input.display()))?;
+            let total = lopdf::Document::load_mem(&bytes)
+                .with_context(|| format!("Failed to parse '{}'", input.display()))?
+                .get_pages()
+                .len();
 
             if pages.is_empty() {
                 anyhow::bail!("Specify at least one page to extract with --pages");
@@ -241,27 +244,15 @@ fn main() -> Result<()> {
                 }
             }
 
-            // Page selection is a set: ignore duplicate page numbers while preserving
-            // the source PDF's original page order.
-            let requested: std::collections::BTreeSet<usize> =
-                pages.into_iter().map(|page| page - 1).collect();
-            let to_keep: Vec<usize> = requested.into_iter().collect();
+            let indices: Vec<usize> = pages.into_iter().map(|page| page - 1).collect();
+            let extracted = rustpdf_organize::extract_pages(&bytes, &indices)
+                .with_context(|| format!("Failed to extract pages from '{}'", input.display()))?;
 
-            let mut new_doc = doc.clone();
-            let to_delete: Vec<u32> = (0..total)
-                .filter(|i| !to_keep.contains(i))
-                .map(|i| (i + 1) as u32)
-                .collect();
+            rustpdf_edit::save_atomic(&out, &extracted)
+                .with_context(|| format!("Failed to save extracted PDF to '{}'", out.display()))?;
 
-            if to_delete.len() < total {
-                new_doc.delete_pages(&to_delete);
-            }
-
-            let mut out_bytes = Vec::new();
-            new_doc.save_to(&mut out_bytes)?;
-
-            rustpdf_edit::save_atomic(&out, &out_bytes)?;
-            println!("Extracted {} pages into '{}'", to_keep.len(), out.display());
+            let page_count = lopdf::Document::load_mem(&extracted)?.get_pages().len();
+            println!("Extracted {} pages into '{}'", page_count, out.display());
         }
 
         Commands::Split {
