@@ -557,6 +557,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn failed_edit_commit_restores_last_valid_document_state() {
+        let bytes =
+            rustpdf_export::create_blank_pdf(2, 612.0, 792.0, "Rollback Test").unwrap();
+        let mut session = DocumentSession::open_mem(bytes, None).unwrap();
+        let old_bytes = session.raw_bytes.as_ref().clone();
+
+        // Force model validation to fail after candidate serialization succeeds.
+        session.cos_doc.inner_mut().trailer.remove(b"Root");
+        let result = session.commit_in_memory_change("Invalid mutation", old_bytes.clone());
+
+        assert!(matches!(
+            result,
+            Err(EngineError::Model(rustpdf_model::ModelError::MissingCatalog))
+        ));
+        assert_eq!(session.raw_bytes.as_ref(), &old_bytes);
+        assert_eq!(session.page_count(), 2);
+        assert!(session.cos_doc.inner().trailer.get(b"Root").is_ok());
+        assert!(!session.history.can_undo());
+        assert!(!session.is_dirty);
+    }
+
+    #[test]
     fn test_session_lifecycle() {
         let blank_bytes =
             rustpdf_export::create_blank_pdf(2, 612.0, 792.0, "Session Test").unwrap();
