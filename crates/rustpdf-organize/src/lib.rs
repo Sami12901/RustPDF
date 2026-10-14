@@ -18,7 +18,11 @@ pub enum OrganizeError {
     #[error("page order length mismatch: expected {expected} page indices, got {actual}")]
     InvalidPageOrderLength { expected: usize, actual: usize },
     #[error("invalid page range {start}..{end} for a document with {total} pages")]
-    InvalidPageRange { start: usize, end: usize, total: usize },
+    InvalidPageRange {
+        start: usize,
+        end: usize,
+        total: usize,
+    },
     #[error("lopdf error: {0}")]
     Lopdf(#[from] lopdf::Error),
     #[error("io error: {0}")]
@@ -284,10 +288,7 @@ fn materialize_inherited_page_attributes(
     Ok(())
 }
 
-fn set_document_page_order(
-    doc: &mut LopdfDoc,
-    page_ids: &[ObjectId],
-) -> Result<(), OrganizeError> {
+fn set_document_page_order(doc: &mut LopdfDoc, page_ids: &[ObjectId]) -> Result<(), OrganizeError> {
     let (_, pages_root_id) = ensure_page_tree(doc)?;
 
     // Pages may inherit MediaBox, CropBox, Resources, and Rotate from intermediate
@@ -342,7 +343,10 @@ pub fn combine_documents(inputs: &[Vec<u8>]) -> Result<Vec<u8>, OrganizeError> {
 }
 
 /// Extracts the selected 0-based page indices into a new PDF, preserving caller order.
-pub fn extract_pages(doc_bytes: &[u8], selected_indices: &[usize]) -> Result<Vec<u8>, OrganizeError> {
+pub fn extract_pages(
+    doc_bytes: &[u8],
+    selected_indices: &[usize],
+) -> Result<Vec<u8>, OrganizeError> {
     if selected_indices.is_empty() {
         return Err(OrganizeError::NoPagesSelected);
     }
@@ -416,7 +420,7 @@ pub fn split_document(doc_bytes: &[u8], rule: SplitRule) -> Result<Vec<Vec<u8>>,
                 }
             }
             ranges
-        },
+        }
     };
 
     let mut outputs = Vec::with_capacity(ranges.len());
@@ -558,12 +562,7 @@ mod tests {
         insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
         let pages: Vec<ObjectId> = doc.page_iter().collect();
 
-        let catalog_id = doc
-            .trailer
-            .get(b"Root")
-            .unwrap()
-            .as_reference()
-            .unwrap();
+        let catalog_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
         let root_pages_id = doc
             .get_object(catalog_id)
             .unwrap()
@@ -609,10 +608,7 @@ mod tests {
             .unwrap()
             .as_dict_mut()
             .unwrap();
-        root_pages.set(
-            b"Kids",
-            Object::Array(vec![Object::Reference(nested_id)]),
-        );
+        root_pages.set(b"Kids", Object::Array(vec![Object::Reference(nested_id)]));
         root_pages.set(b"Count", Object::Integer(pages.len() as i64));
 
         move_page(&mut doc, 0, 1).unwrap();
@@ -623,26 +619,20 @@ mod tests {
             let page = doc.get_object(*page_id).unwrap().as_dict().unwrap();
             assert!(page.get(b"MediaBox").is_ok());
             assert!(page.get(b"Resources").is_ok());
-            assert_eq!(
-                page.get(b"Rotate").unwrap().as_i64().unwrap(),
-                90
-            );
+            assert_eq!(page.get(b"Rotate").unwrap().as_i64().unwrap(), 90);
             assert_eq!(
                 page.get(b"Parent").unwrap().as_reference().unwrap(),
                 root_pages_id
             );
         }
 
-        let root_pages = doc
-            .get_object(root_pages_id)
-            .unwrap()
-            .as_dict()
-            .unwrap();
+        let root_pages = doc.get_object(root_pages_id).unwrap().as_dict().unwrap();
         let kids = root_pages.get(b"Kids").unwrap().as_array().unwrap();
         assert_eq!(kids.len(), 2);
-        assert!(kids.iter().all(|kid| matches!(kid, Object::Reference(id) if flattened_pages.contains(id))));
+        assert!(kids
+            .iter()
+            .all(|kid| matches!(kid, Object::Reference(id) if flattened_pages.contains(id))));
     }
-
 
     #[test]
     fn test_extract_pages_preserves_requested_order() {
@@ -702,5 +692,4 @@ mod tests {
             Err(OrganizeError::IndexOutOfBounds(2, 2))
         ));
     }
-
 }
