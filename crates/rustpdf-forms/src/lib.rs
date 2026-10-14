@@ -59,7 +59,7 @@ fn all_child_ids(doc: &LopdfDoc, field_dict: &lopdf::Dictionary) -> Vec<ObjectId
         _ => return Vec::new(),
     };
     kids.into_iter()
-        .filter_map(|child| child.as_reference().ok().copied())
+        .filter_map(|child| child.as_reference().ok())
         .collect()
 }
 
