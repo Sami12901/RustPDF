@@ -339,19 +339,34 @@ pub fn reset_all_fields(doc: &mut LopdfDoc) -> Result<usize, FormError> {
 }
 
 fn set_need_appearances(doc: &mut LopdfDoc) {
-    let acro_form_id = doc
+    let root_id = match doc
         .trailer
         .get(b"Root")
         .ok()
-        .and_then(|r| r.as_reference().ok())
-        .and_then(|root_id| doc.get_object(root_id).ok())
-        .and_then(|root| root.as_dict().ok())
-        .and_then(|root_dict| root_dict.get(b"AcroForm").ok())
-        .and_then(|af| af.as_reference().ok());
+        .and_then(|root| root.as_reference().ok())
+    {
+        Some(id) => id,
+        None => return,
+    };
 
-    if let Some(af_id) = acro_form_id {
-        if let Ok(Object::Dictionary(ref mut af_dict)) = doc.get_object_mut(af_id) {
-            af_dict.set(b"NeedAppearances", Object::Boolean(true));
+    let acro_form_id = doc
+        .get_object(root_id)
+        .ok()
+        .and_then(|root| root.as_dict().ok())
+        .and_then(|root| root.get(b"AcroForm").ok())
+        .and_then(|acro_form| acro_form.as_reference().ok());
+
+    if let Some(acro_form_id) = acro_form_id {
+        if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(acro_form_id) {
+            dict.set(b"NeedAppearances", Object::Boolean(true));
+        }
+        return;
+    }
+
+    // AcroForm may legally be a direct catalog dictionary.
+    if let Ok(Object::Dictionary(ref mut catalog)) = doc.get_object_mut(root_id) {
+        if let Ok(Object::Dictionary(ref mut dict)) = catalog.get_mut(b"AcroForm") {
+            dict.set(b"NeedAppearances", Object::Boolean(true));
         }
     }
 }
@@ -370,12 +385,17 @@ pub fn export_form_data_json(doc: &LopdfDoc) -> Result<String, FormError> {
 /// Imports form field key-value pairs from a JSON map and populates matching fields.
 pub fn import_form_data_json(doc: &mut LopdfDoc, json_str: &str) -> Result<usize, FormError> {
     let map: std::collections::BTreeMap<String, String> = serde_json::from_str(json_str)?;
+    let mut candidate = doc.clone();
     let mut updated = 0;
-    for (k, v) in map {
-        if set_field_value(doc, &k, &v).is_ok() {
-            updated += 1;
-        }
+
+    // Apply every requested value to a clone. Unknown/read-only fields or malformed
+    // values abort the import without leaving a partially modified document.
+    for (name, value) in map {
+        set_field_value(&mut candidate, &name, &value)?;
+        updated += 1;
     }
+
+    *doc = candidate;
     Ok(updated)
 }
 
@@ -480,6 +500,62 @@ mod tests {
             .get(b"V")
             .unwrap();
         assert_eq!(to_string_lossy(value).as_deref(), Some("default"));
+    }
+
+    #[test]
+    fn nested_fields_use_qualified_names_and_inherited_read_only_flags() {
+        let mut doc = LopdfDoc::with_version("1.7");
+
+        let mut child = lopdf::Dictionary::new();
+        child.set(b"T", Object::String(b"name".to_vec(), StringFormat::Literal));
+        child.set(b"V", Object::String(b"Sami".to_vec(), StringFormat::Literal));
+        let child_id = doc.add_object(child);
+
+        let mut parent = lopdf::Dictionary::new();
+        parent.set(b"T", Object::String(b"customer".to_vec(), StringFormat::Literal));
+        parent.set(b"FT", Object::Name(b"Tx".to_vec()));
+        parent.set(b"Ff", Object::Integer(1));
+        parent.set(b"Kids", Object::Array(vec![Object::Reference(child_id)]));
+        let parent_id = doc.add_object(parent);
+
+        let mut acro_form = lopdf::Dictionary::new();
+        acro_form.set(b"Fields", Object::Array(vec![Object::Reference(parent_id)]));
+
+        let mut catalog = lopdf::Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        catalog.set(b"AcroForm", Object::Dictionary(acro_form));
+        let catalog_id = doc.add_object(catalog);
+        doc.trailer.set(b"Root", Object::Reference(catalog_id));
+
+        let fields = get_form_fields(&doc);
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].name, "customer.name");
+        assert_eq!(fields[0].kind, FieldKind::Text);
+        assert!(fields[0].read_only);
+        assert_eq!(fields[0].value.as_deref(), Some("Sami"));
+        assert!(matches!(
+            set_field_value(&mut doc, "customer.name", "Changed"),
+            Err(FormError::ReadOnlyField(name)) if name == "customer.name"
+        ));
+    }
+
+    #[test]
+    fn form_data_import_is_atomic_when_any_field_is_invalid() {
+        let (mut doc, ids) =
+            make_form_doc(&[("editable", "original", false), ("locked", "protected", true)]);
+
+        assert!(matches!(
+            import_form_data_json(
+                &mut doc,
+                r#"{"editable":"changed","locked":"should-not-apply"}"#
+            ),
+            Err(FormError::ReadOnlyField(name)) if name == "locked"
+        ));
+
+        let first = doc.get_object(ids[0]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        let second = doc.get_object(ids[1]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        assert_eq!(to_string_lossy(first).as_deref(), Some("original"));
+        assert_eq!(to_string_lossy(second).as_deref(), Some("protected"));
     }
 
     #[test]
