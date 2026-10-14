@@ -387,7 +387,8 @@ mod extraction_tests {
             .values()
             .map(|id| {
                 let page = extracted_doc.get_object(*id).unwrap().as_dict().unwrap();
-                page.get(b"MediaBox").unwrap().as_array().unwrap()[2].as_float()
+                page.get(b"MediaBox").unwrap().as_array().unwrap()[2]
+                    .as_float()
                     .unwrap()
             })
             .collect();
@@ -597,10 +598,7 @@ mod tests {
             .map(|id| {
                 let page = doc.get_object(*id).unwrap().as_dict().unwrap();
                 assert!(page.get(b"Resources").is_ok());
-                page.get(b"MediaBox")
-                    .unwrap()
-                    .as_array()
-                    .unwrap()[2]
+                page.get(b"MediaBox").unwrap().as_array().unwrap()[2]
                     .as_float()
                     .unwrap()
             })
