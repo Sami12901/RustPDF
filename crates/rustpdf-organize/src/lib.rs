@@ -457,4 +457,155 @@ mod tests {
         let reordered: Vec<ObjectId> = doc.page_iter().collect();
         assert_eq!(reordered, initial_order);
     }
+
+    #[test]
+    fn test_delete_deduplicates_indices_and_rejects_out_of_bounds() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 2, 612.0, 792.0).unwrap();
+
+        delete_pages(&mut doc, &[0, 0]).unwrap();
+        assert_eq!(doc.get_pages().len(), 2);
+
+        let before = doc.page_iter().collect::<Vec<_>>();
+        assert!(matches!(
+            delete_pages(&mut doc, &[9]),
+            Err(OrganizeError::IndexOutOfBounds(9, 2))
+        ));
+        assert_eq!(doc.page_iter().collect::<Vec<_>>(), before);
+    }
+
+    #[test]
+    fn test_reorder_rejects_duplicate_indices_without_mutating_document() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
+        let before = doc.page_iter().collect::<Vec<_>>();
+
+        assert!(matches!(
+            reorder_pages(&mut doc, &[0, 0]),
+            Err(OrganizeError::DuplicatePageIndex(0))
+        ));
+        assert_eq!(doc.page_iter().collect::<Vec<_>>(), before);
+    }
+
+    #[test]
+    fn test_split_rejects_empty_and_out_of_bounds_ranges() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+
+        assert!(matches!(
+            split_document(&bytes, SplitRule::Ranges(vec![0..0])),
+            Err(OrganizeError::InvalidPageRange {
+                start: 0,
+                end: 0,
+                total: 2
+            })
+        ));
+        assert!(matches!(
+            split_document(&bytes, SplitRule::Ranges(vec![0..3])),
+            Err(OrganizeError::InvalidPageRange {
+                start: 0,
+                end: 3,
+                total: 2
+            })
+        ));
+    }
+
+    #[test]
+    fn test_reordering_nested_page_tree_preserves_inherited_attributes() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
+        let pages: Vec<ObjectId> = doc.page_iter().collect();
+
+        let catalog_id = *doc
+            .trailer
+            .get(b"Root")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let root_pages_id = *doc
+            .get_object(catalog_id)
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"Pages")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+
+        let resources_id = doc.add_object(Dictionary::new());
+        let mut nested_pages = Dictionary::new();
+        nested_pages.set(b"Type", Object::Name(b"Pages".to_vec()));
+        nested_pages.set(b"Parent", Object::Reference(root_pages_id));
+        nested_pages.set(b"Count", Object::Integer(pages.len() as i64));
+        nested_pages.set(
+            b"Kids",
+            Object::Array(pages.iter().map(|id| Object::Reference(*id)).collect()),
+        );
+        nested_pages.set(
+            b"MediaBox",
+            Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(600),
+                Object::Integer(800),
+            ]),
+        );
+        nested_pages.set(b"Resources", Object::Reference(resources_id));
+        nested_pages.set(b"Rotate", Object::Integer(90));
+        let nested_id = doc.add_object(nested_pages);
+
+        for page_id in &pages {
+            let page = doc.get_object_mut(*page_id).unwrap().as_dict_mut().unwrap();
+            page.set(b"Parent", Object::Reference(nested_id));
+            page.remove(b"MediaBox");
+            page.remove(b"Resources");
+            page.remove(b"Rotate");
+        }
+
+        let root_pages = doc
+            .get_object_mut(root_pages_id)
+            .unwrap()
+            .as_dict_mut()
+            .unwrap();
+        root_pages.set(
+            b"Kids",
+            Object::Array(vec![Object::Reference(nested_id)]),
+        );
+        root_pages.set(b"Count", Object::Integer(pages.len() as i64));
+
+        move_page(&mut doc, 0, 1).unwrap();
+
+        let flattened_pages: Vec<ObjectId> = doc.page_iter().collect();
+        assert_eq!(flattened_pages.len(), 2);
+        for page_id in &flattened_pages {
+            let page = doc.get_object(*page_id).unwrap().as_dict().unwrap();
+            assert!(page.get(b"MediaBox").is_ok());
+            assert!(page.get(b"Resources").is_ok());
+            assert_eq!(
+                page.get(b"Rotate").unwrap().as_i64().unwrap(),
+                90
+            );
+            assert_eq!(
+                page.get(b"Parent").unwrap().as_reference().unwrap(),
+                &root_pages_id
+            );
+        }
+
+        let root_pages = doc
+            .get_object(root_pages_id)
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let kids = root_pages.get(b"Kids").unwrap().as_array().unwrap();
+        assert_eq!(kids.len(), 2);
+        assert!(kids.iter().all(|kid| matches!(kid, Object::Reference(id) if flattened_pages.contains(id))));
+    }
+
 }
