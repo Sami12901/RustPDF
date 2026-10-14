@@ -1099,13 +1099,72 @@ impl App for RustPdfApp {
                                 }
                             }
                             crate::tools_panel::ToolAction::ExtractPages => {
-                                if let Some(s) = self.active_session_mut() {
+                                let selected_pages: Vec<usize> =
+                                    if self.active_workspace == ActiveWorkspace::Organizer
+                                        && !self.organizer_state.selected_pages.is_empty()
+                                    {
+                                        self.organizer_state
+                                            .selected_pages
+                                            .iter()
+                                            .copied()
+                                            .collect()
+                                    } else {
+                                        vec![self.viewer_state.current_page]
+                                    };
+
+                                let source = self.active_session().map(|session| {
+                                    (
+                                        session.raw_bytes.as_ref().clone(),
+                                        session.file_path.clone(),
+                                        session.display_name.clone(),
+                                    )
+                                });
+
+                                if let Some((source_bytes, source_path, display_name)) = source {
+                                    let default_name = format!(
+                                        "{}-extracted.pdf",
+                                        display_name.trim_end_matches(".pdf")
+                                    );
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("PDF", &["pdf"])
+                                        .set_file_name(&default_name)
                                         .save_file()
                                     {
-                                        let _ = s.save_to(&path);
+                                        if source_path.as_deref() == Some(path.as_path()) {
+                                            self.notify_error(
+                                                "Choose a different output file so the source PDF is not overwritten."
+                                            );
+                                        } else {
+                                            match rustpdf_organize::extract_pages(
+                                                &source_bytes,
+                                                &selected_pages,
+                                            ) {
+                                                Ok(extracted) => {
+                                                    match rustpdf_edit::save_atomic(&path, &extracted) {
+                                                        Ok(()) => self.notify_success(format!(
+                                                            "Extracted {} page(s) to {}",
+                                                            rustpdf_organize::extract_pages(
+                                                                &source_bytes,
+                                                                &selected_pages
+                                                            ).map(|bytes| lopdf::Document::load_mem(&bytes)
+                                                                .map(|pdf| pdf.get_pages().len())
+                                                                .unwrap_or(0))
+                                                            .unwrap_or(0),
+                                                            path.display()
+                                                        )),
+                                                        Err(error) => self.notify_error(format!(
+                                                            "Failed to save extracted PDF: {error}"
+                                                        )),
+                                                    }
+                                                }
+                                                Err(error) => self.notify_error(format!(
+                                                    "Failed to extract pages: {error}"
+                                                )),
+                                            }
+                                        }
                                     }
+                                } else {
+                                    self.notify_error("Open a PDF before extracting pages.");
                                 }
                             }
                             crate::tools_panel::ToolAction::EditTextAndImages => {
