@@ -1555,8 +1555,7 @@ impl App for RustPdfApp {
                         None
                     };
 
-                    let operation_succeeded =
-                        matches!(operation_result.as_ref(), Some(Ok(())));
+                    let operation_succeeded = matches!(operation_result.as_ref(), Some(Ok(())));
                     match operation_result {
                         Some(Ok(())) => self.notify_success("Page operation completed."),
                         Some(Err(error)) => {
@@ -1567,8 +1566,7 @@ impl App for RustPdfApp {
                         }
                     }
 
-                    if matches!(act, OrganizerAction::Delete) && operation_succeeded
-                    {
+                    if matches!(act, OrganizerAction::Delete) && operation_succeeded {
                         self.organizer_state.selected_pages.clear();
                     }
                 }
@@ -1630,7 +1628,10 @@ impl App for RustPdfApp {
                         .map_err(|error| format!("Failed to split PDF: {error}"))?;
 
                         std::fs::create_dir_all(&out_dir).map_err(|error| {
-                            format!("Failed to create output directory '{}': {error}", out_dir.display())
+                            format!(
+                                "Failed to create output directory '{}': {error}",
+                                out_dir.display()
+                            )
                         })?;
 
                         for (i, chunk) in chunks.iter().enumerate() {
@@ -1664,7 +1665,10 @@ impl App for RustPdfApp {
                         })
                         .and_then(|bytes| {
                             rustpdf_edit::save_atomic(&path, &bytes).map_err(|error| {
-                                format!("Failed to save extracted PDF to '{}': {error}", path.display())
+                                format!(
+                                    "Failed to save extracted PDF to '{}': {error}",
+                                    path.display()
+                                )
                             })
                         });
 
