@@ -195,4 +195,5 @@ mod tests {
         );
         assert!(doc.trailer.get(b"Encrypt").is_ok());
         assert!(inspect_protection(&doc).is_some());
-    }}
+    }
+}
