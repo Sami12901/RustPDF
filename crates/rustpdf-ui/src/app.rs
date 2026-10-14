@@ -391,6 +391,8 @@ impl RustPdfApp {
 impl App for RustPdfApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // Re-resolve System mode every frame so OS theme changes are reflected live.
+        self.theme.apply_to_egui(&ctx);
         self.handle_shortcuts(&ctx);
         let accent = self.theme.active_accent();
 
