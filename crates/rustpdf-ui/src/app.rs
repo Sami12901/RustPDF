@@ -1797,6 +1797,18 @@ impl App for RustPdfApp {
                     }
                     _ => {}
                 },
+                ModalAction::Notification(message, is_error) => {
+                    if is_error {
+                        self.notify_error(message);
+                    } else {
+                        self.notify_success(message);
+                        if let Some(session) = self.active_session() {
+                            let doc_id = session.id;
+                            self.organizer_state.invalidate_doc(doc_id);
+                            self.viewer_state.invalidate_doc(doc_id);
+                        }
+                    }
+                }
                 ModalAction::DocumentModified => {
                     if let Some(session) = self.active_session() {
                         let doc_id = session.id;
