@@ -2287,11 +2287,7 @@ impl App for RustPdfApp {
                         }
                     }
                     "Save Document" => {
-                        if let Some(s) = self.active_session_mut() {
-                            if let Some(ref p) = s.file_path.clone() {
-                                let _ = s.save_to(p);
-                            }
-                        }
+                        self.save_active_document();
                     }
                     "Organize Pages" => {
                         self.active_workspace = ActiveWorkspace::Organizer;
