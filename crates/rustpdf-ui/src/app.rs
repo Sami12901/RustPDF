@@ -17,6 +17,69 @@ use crate::theme::AppTheme;
 use crate::thumbnails::ThumbnailConfig;
 use crate::viewer::{EditTool, StampKind, ViewMode, ViewerComponent, ViewerState};
 
+/// Performs Unicode-safe case-insensitive replacement by mapping folded characters
+/// back to original UTF-8 byte ranges. A match may not split a lowercase expansion
+/// of a single source character.
+fn replace_case_insensitive(
+    input: &str,
+    query: &str,
+    replacement: &str,
+    replace_all: bool,
+) -> (String, usize) {
+    let needle: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
+    if needle.is_empty() {
+        return (input.to_string(), 0);
+    }
+
+    let mut folded = Vec::<(char, usize, usize)>::new();
+    for (start, original) in input.char_indices() {
+        let end = start + original.len_utf8();
+        for lower in original.to_lowercase() {
+            folded.push((lower, start, end));
+        }
+    }
+
+    let mut output = String::with_capacity(input.len());
+    let mut byte_cursor = 0;
+    let mut count = 0;
+    let mut i = 0;
+
+    while i + needle.len() <= folded.len() {
+        let end_i = i + needle.len() - 1;
+        let matches = folded[i..=end_i]
+            .iter()
+            .map(|item| item.0)
+            .eq(needle.iter().copied());
+        let starts_at_boundary = i == 0 || folded[i - 1].1 != folded[i].1;
+        let ends_at_boundary =
+            end_i + 1 == folded.len() || folded[end_i + 1].1 != folded[end_i].1;
+
+        if matches && starts_at_boundary && ends_at_boundary {
+            let start_byte = folded[i].1;
+            let end_byte = folded[end_i].2;
+            if start_byte >= byte_cursor {
+                output.push_str(&input[byte_cursor..start_byte]);
+                output.push_str(replacement);
+                byte_cursor = end_byte;
+                count += 1;
+                i = end_i + 1;
+                if !replace_all {
+                    break;
+                }
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    if count == 0 {
+        return (input.to_string(), 0);
+    }
+
+    output.push_str(&input[byte_cursor..]);
+    (output, count)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ActiveWorkspace {
     Home,
@@ -909,131 +972,192 @@ impl App for RustPdfApp {
                             self.viewer_state.current_page = target_page;
                         }
                         crate::search::SearchBarAction::ReplaceOne => {
-                            if let Some(hit) = self.search_state.current_match().cloned() {
-                                let q = self.search_state.query.clone();
-                                let repl = self.search_state.replace_query.clone();
-                                let is_case = self.search_state.case_sensitive;
+                            let query = self.search_state.query.clone();
+                            let replacement = self.search_state.replace_query.clone();
+                            let case_sensitive = self.search_state.case_sensitive;
+                            let mut feedback: Option<(bool, String)> = None;
+
+                            if query.is_empty() {
+                                feedback = Some((true, "Enter text to replace.".to_string()));
+                            } else if let Some(hit) = self.search_state.current_match().cloned() {
                                 if let Some(idx) = self.active_tab {
-                                    let session = &mut self.sessions[idx];
-                                    let doc_id = session.id;
-                                    let blocks = session.get_page_text_blocks(hit.page_index);
-                                    let mut replacement_done = false;
-                                    if let Some(target_block) = blocks.into_iter().find(|b| {
-                                        if is_case {
-                                            b.text.contains(&q)
+                                    let doc_id = self.sessions[idx].id;
+                                    let blocks =
+                                        self.sessions[idx].get_page_text_blocks(hit.page_index);
+                                    let target = blocks.into_iter().find(|block| {
+                                        if case_sensitive {
+                                            block.text.contains(&query)
                                         } else {
-                                            b.text.to_lowercase().contains(&q.to_lowercase())
+                                            !replace_case_insensitive(
+                                                &block.text,
+                                                &query,
+                                                "",
+                                                false,
+                                            )
+                                            .1
+                                            .eq(&0)
                                         }
-                                    }) {
-                                        let new_text = if is_case {
-                                            target_block.text.replacen(&q, &repl, 1)
+                                    });
+
+                                    if let Some(block) = target {
+                                        let (new_text, match_count) = if case_sensitive {
+                                            let count = block.text.matches(&query).count().min(1);
+                                            (block.text.replacen(&query, &replacement, 1), count)
                                         } else {
-                                            let lower_text = target_block.text.to_lowercase();
-                                            let lower_q = q.to_lowercase();
-                                            if let Some(pos) = lower_text.find(&lower_q) {
-                                                let mut s = target_block.text.clone();
-                                                s.replace_range(pos..pos + q.len(), &repl);
-                                                s
-                                            } else {
-                                                target_block.text.clone()
-                                            }
+                                            replace_case_insensitive(
+                                                &block.text,
+                                                &query,
+                                                &replacement,
+                                                false,
+                                            )
                                         };
-                                        if new_text != target_block.text {
-                                            let _ = session.replace_text_block(
+
+                                        if match_count == 0 || new_text == block.text {
+                                            feedback = Some((
+                                                true,
+                                                "No text changes were made. Check that the replacement differs from the matched text."
+                                                    .to_string(),
+                                            ));
+                                        } else {
+                                            match self.sessions[idx].replace_text_block(
                                                 hit.page_index,
-                                                &target_block,
+                                                &block,
                                                 &new_text,
-                                            );
-                                            replacement_done = true;
+                                            ) {
+                                                Ok(()) => {
+                                                    self.viewer_state
+                                                        .invalidate_page_texture(doc_id, hit.page_index);
+                                                    self.viewer_state
+                                                        .text_blocks_cache
+                                                        .retain(|&(doc, _), _| doc != doc_id);
+                                                    self.organizer_state.invalidate_doc(doc_id);
+                                                    self.search_state.update_search(
+                                                        &self.sessions[idx],
+                                                        doc_id,
+                                                        true,
+                                                    );
+                                                    feedback = Some((
+                                                        false,
+                                                        "Replaced 1 match.".to_string(),
+                                                    ));
+                                                }
+                                                Err(error) => {
+                                                    feedback = Some((
+                                                        true,
+                                                        format!("Text replacement failed: {error}"),
+                                                    ));
+                                                }
+                                            }
                                         }
+                                    } else {
+                                        feedback = Some((
+                                            true,
+                                            "No editable text block matched the search query."
+                                                .to_string(),
+                                        ));
                                     }
-                                    if replacement_done {
-                                        self.viewer_state
-                                            .invalidate_page_texture(doc_id, hit.page_index);
-                                        self.viewer_state
-                                            .text_blocks_cache
-                                            .retain(|&(d, _), _| d != doc_id);
-                                        let session_ref = &self.sessions[idx];
-                                        self.search_state.update_search(session_ref, doc_id, true);
-                                        self.notify_success("Replaced 1 match");
-                                    }
+                                } else {
+                                    feedback = Some((true, "Open a PDF before replacing text.".to_string()));
+                                }
+                            } else {
+                                feedback = Some((true, "No search result is selected.".to_string()));
+                            }
+
+                            if let Some((is_error, message)) = feedback {
+                                if is_error {
+                                    self.notify_error(message);
+                                } else {
+                                    self.notify_success(message);
                                 }
                             }
                         }
                         crate::search::SearchBarAction::ReplaceAll => {
-                            let q = self.search_state.query.clone();
-                            let repl = self.search_state.replace_query.clone();
-                            let is_case = self.search_state.case_sensitive;
-                            if !q.is_empty() {
-                                if let Some(idx) = self.active_tab {
+                            let query = self.search_state.query.clone();
+                            let replacement = self.search_state.replace_query.clone();
+                            let case_sensitive = self.search_state.case_sensitive;
+
+                            if query.is_empty() {
+                                self.notify_error("Enter text to replace.");
+                            } else if let Some(idx) = self.active_tab {
+                                let (doc_id, count, modified_pages, errors) = {
                                     let session = &mut self.sessions[idx];
                                     let doc_id = session.id;
-                                    let mut count = 0;
+                                    let mut count = 0usize;
                                     let mut modified_pages = Vec::new();
-                                    let num_pages = session.page_count();
-                                    for p_idx in 0..num_pages {
-                                        let blocks = session.get_page_text_blocks(p_idx);
+                                    let mut errors = Vec::new();
+
+                                    for page_idx in 0..session.page_count() {
+                                        let blocks = session.get_page_text_blocks(page_idx);
                                         let mut page_changed = false;
+
                                         for block in blocks {
-                                            let has_match = if is_case {
-                                                block.text.contains(&q)
+                                            let (new_text, match_count) = if case_sensitive {
+                                                let n = block.text.matches(&query).count();
+                                                (block.text.replace(&query, &replacement), n)
                                             } else {
-                                                block
-                                                    .text
-                                                    .to_lowercase()
-                                                    .contains(&q.to_lowercase())
+                                                replace_case_insensitive(
+                                                    &block.text,
+                                                    &query,
+                                                    &replacement,
+                                                    true,
+                                                )
                                             };
-                                            if has_match {
-                                                let new_text = if is_case {
-                                                    block.text.replace(&q, &repl)
-                                                } else {
-                                                    let lower_q = q.to_lowercase();
-                                                    let mut result = String::new();
-                                                    let mut last_end = 0;
-                                                    let lower_text = block.text.to_lowercase();
-                                                    while let Some(pos) =
-                                                        lower_text[last_end..].find(&lower_q)
-                                                    {
-                                                        let abs_pos = last_end + pos;
-                                                        result.push_str(
-                                                            &block.text[last_end..abs_pos],
-                                                        );
-                                                        result.push_str(&repl);
-                                                        last_end = abs_pos + q.len();
-                                                    }
-                                                    result.push_str(&block.text[last_end..]);
-                                                    result
-                                                };
-                                                if new_text != block.text {
-                                                    let _ = session.replace_text_block(
-                                                        p_idx, &block, &new_text,
-                                                    );
+
+                                            if match_count == 0 || new_text == block.text {
+                                                continue;
+                                            }
+
+                                            match session.replace_text_block(
+                                                page_idx,
+                                                &block,
+                                                &new_text,
+                                            ) {
+                                                Ok(()) => {
+                                                    count += match_count;
                                                     page_changed = true;
-                                                    count += 1;
                                                 }
+                                                Err(error) => errors.push(format!(
+                                                    "Page {}: {error}",
+                                                    page_idx + 1
+                                                )),
                                             }
                                         }
+
                                         if page_changed {
-                                            modified_pages.push(p_idx);
+                                            modified_pages.push(page_idx);
                                         }
                                     }
-                                    for p_idx in modified_pages {
-                                        self.viewer_state.invalidate_page_texture(doc_id, p_idx);
-                                    }
-                                    if count > 0 {
-                                        self.viewer_state
-                                            .text_blocks_cache
-                                            .retain(|&(d, _), _| d != doc_id);
-                                        let session_ref = &self.sessions[idx];
-                                        self.search_state.update_search(session_ref, doc_id, true);
-                                        self.notify_success(format!(
-                                            "Replaced {} occurrences across document",
-                                            count
-                                        ));
-                                    } else {
-                                        self.notify_error("No matches found to replace");
-                                    }
+
+                                    (doc_id, count, modified_pages, errors)
+                                };
+
+                                for page_idx in modified_pages {
+                                    self.viewer_state
+                                        .invalidate_page_texture(doc_id, page_idx);
                                 }
+                                self.viewer_state
+                                    .text_blocks_cache
+                                    .retain(|&(doc, _), _| doc != doc_id);
+                                self.organizer_state.invalidate_doc(doc_id);
+                                self.search_state.update_search(&self.sessions[idx], doc_id, true);
+
+                                if !errors.is_empty() {
+                                    let first_error = &errors[0];
+                                    self.notify_error(format!(
+                                        "Replace All partially completed: {count} occurrence(s) replaced; {} error(s). First error: {first_error}",
+                                        errors.len()
+                                    ));
+                                } else if count > 0 {
+                                    self.notify_success(format!(
+                                        "Replaced {count} occurrence(s) across the document."
+                                    ));
+                                } else {
+                                    self.notify_error(
+                                        "No matching text was found, or the replacement made no changes."
+                                    );
+                                }
+                            } else {
+                                self.notify_error("Open a PDF before replacing text.");
                             }
                         }
                     }
