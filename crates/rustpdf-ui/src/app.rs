@@ -1531,14 +1531,7 @@ impl App for RustPdfApp {
                             }
                             OrganizerAction::Duplicate => first_selected
                                 .map(|first| session.duplicate_page(first))
-                                .unwrap_or_else(|| {
-                                    Err(rustpdf_engine::EngineError::Organize(
-                                        rustpdf_organize::OrganizeError::IndexOutOfBounds(
-                                            max_selected,
-                                            session.page_count(),
-                                        ),
-                                    ))
-                                }),
+                                .unwrap_or(Ok(())),
                             OrganizerAction::MoveLeft => {
                                 if let Some(first) = first_selected.filter(|first| *first > 0) {
                                     session.move_page(first, first - 1)
@@ -1565,14 +1558,19 @@ impl App for RustPdfApp {
                         None
                     };
 
+                    let operation_succeeded =
+                        matches!(operation_result.as_ref(), Some(Ok(())));
                     match operation_result {
                         Some(Ok(())) => self.notify_success("Page operation completed."),
-                        Some(Err(error)) => self.notify_error(format!("Page operation failed: {error}")),
-                        None => self.notify_error("Open a PDF before using page organization tools."),
+                        Some(Err(error)) => {
+                            self.notify_error(format!("Page operation failed: {error}"))
+                        }
+                        None => {
+                            self.notify_error("Open a PDF before using page organization tools.")
+                        }
                     }
 
-                    if matches!(act, OrganizerAction::Delete)
-                        && matches!(operation_result, Some(Ok(())))
+                    if matches!(act, OrganizerAction::Delete) && operation_succeeded
                     {
                         self.organizer_state.selected_pages.clear();
                     }
