@@ -149,6 +149,7 @@ pub enum ModalAction {
     Split(usize, PathBuf),
     ExecuteCommand(String),
     DocumentModified,
+    Notification(String, bool),
 }
 
 pub struct ModalsComponent;
@@ -228,13 +229,36 @@ impl ModalsComponent {
                     ui.add_space(18.0);
                     ui.horizontal(|ui| {
                         if ui.button("💾 Save Theme").clicked() {
-                            let _ = theme.save_persisted();
-                            theme.apply_to_egui(ctx);
+                            match theme.save_persisted() {
+                                Ok(()) => {
+                                    theme.apply_to_egui(ctx);
+                                    action = Some(ModalAction::Notification(
+                                        "Theme settings saved.".to_string(),
+                                        false,
+                                    ));
+                                }
+                                Err(error) => {
+                                    action = Some(ModalAction::Notification(
+                                        format!("Failed to save theme settings: {error}"),
+                                        true,
+                                    ));
+                                }
+                            }
                         }
 
                         if ui.button("↺ Reset to Default").clicked() {
                             *theme = AppTheme::default();
                             theme.apply_to_egui(ctx);
+                            action = Some(match theme.save_persisted() {
+                                Ok(()) => ModalAction::Notification(
+                                    "Default theme restored.".to_string(),
+                                    false,
+                                ),
+                                Err(error) => ModalAction::Notification(
+                                    format!("Default theme applied but could not be saved: {error}"),
+                                    true,
+                                ),
+                            });
                         }
 
                         if ui.button("📤 Export JSON").clicked() {
@@ -309,10 +333,31 @@ impl ModalsComponent {
                     ui.add_space(16.0);
                     ui.horizontal(|ui| {
                         if ui.button("💾 Save Settings").clicked() {
-                            let _ = thumbnails.save_persisted();
+                            action = Some(match thumbnails.save_persisted() {
+                                Ok(()) => ModalAction::Notification(
+                                    "Thumbnail settings saved.".to_string(),
+                                    false,
+                                ),
+                                Err(error) => ModalAction::Notification(
+                                    format!("Failed to save thumbnail settings: {error}"),
+                                    true,
+                                ),
+                            });
                         }
                         if ui.button("↺ Reset Defaults").clicked() {
                             *thumbnails = ThumbnailConfig::default();
+                            action = Some(match thumbnails.save_persisted() {
+                                Ok(()) => ModalAction::Notification(
+                                    "Default thumbnail settings restored.".to_string(),
+                                    false,
+                                ),
+                                Err(error) => ModalAction::Notification(
+                                    format!(
+                                        "Default thumbnail settings applied but could not be saved: {error}"
+                                    ),
+                                    true,
+                                ),
+                            });
                         }
                     });
                 });
@@ -364,7 +409,7 @@ impl ModalsComponent {
                         ));
 
                         ui.add_space(16.0);
-                        if ui.button("💾 Apply & Save Metadata").clicked() {
+                        if ui.button("Apply Metadata").clicked() {
                             let mut updated = s.model.metadata.clone();
                             updated.title = if title.is_empty() { None } else { Some(title) };
                             updated.author = if author.is_empty() {
@@ -382,7 +427,17 @@ impl ModalsComponent {
                             } else {
                                 Some(keywords)
                             };
-                            let _ = s.update_metadata(updated);
+                            action = Some(match s.update_metadata(updated) {
+                                Ok(()) => ModalAction::Notification(
+                                    "Metadata applied. Save the PDF to persist it to disk."
+                                        .to_string(),
+                                    false,
+                                ),
+                                Err(error) => ModalAction::Notification(
+                                    format!("Failed to apply metadata: {error}"),
+                                    true,
+                                ),
+                            });
                         }
                     });
             }
@@ -633,17 +688,45 @@ impl ModalsComponent {
                                     allow_annotate: state.protect_allow_annotate,
                                     ..Default::default()
                                 };
-                                let _ = s.protect_document(
+                                match s.protect_document(
                                     &state.protect_user_pass,
                                     &state.protect_owner_pass,
                                     perms,
-                                );
-                                close_dialog = true;
+                                ) {
+                                    Ok(()) => {
+                                        action = Some(ModalAction::Notification(
+                                            "Document protection applied.".to_string(),
+                                            false,
+                                        ));
+                                        close_dialog = true;
+                                    }
+                                    Err(error) => {
+                                        action = Some(ModalAction::Notification(
+                                            format!(
+                                                "Could not protect this PDF: {error}. The document was not encrypted."
+                                            ),
+                                            true,
+                                        ));
+                                    }
+                                }
                             }
 
                             if ui.button("Remove Protection").clicked() {
-                                let _ = s.remove_protection();
-                                close_dialog = true;
+                                match s.remove_protection() {
+                                    Ok(()) => {
+                                        action = Some(ModalAction::Notification(
+                                            "Document restrictions removed.".to_string(),
+                                            false,
+                                        ));
+                                        close_dialog = true;
+                                    }
+                                    Err(error) => {
+                                        action = Some(ModalAction::Notification(
+                                            format!("Failed to remove protection: {error}"),
+                                            true,
+                                        ));
+                                    }
+                                }
                             }
                         });
                     });
@@ -680,7 +763,16 @@ impl ModalsComponent {
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             if ui.button("Reset All Fields").clicked() {
-                                let _ = s.reset_form_fields();
+                                action = Some(match s.reset_form_fields() {
+                                    Ok(count) => ModalAction::Notification(
+                                        format!("Reset {count} form field(s)."),
+                                        false,
+                                    ),
+                                    Err(error) => ModalAction::Notification(
+                                        format!("Failed to reset form fields: {error}"),
+                                        true,
+                                    ),
+                                });
                             }
                             if ui.button("Export Form Data (JSON)").clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
