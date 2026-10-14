@@ -1827,13 +1827,23 @@ impl App for RustPdfApp {
                                 }
                             }
                             crate::tools_panel::ToolAction::RemoveProtection => {
-                                let result = self
+                                match self
                                     .active_session_mut()
-                                    .map(|session| session.remove_protection());
-                                self.report_document_operation(
-                                    result,
-                                    "Document restrictions removed.",
-                                );
+                                    .map(|session| session.remove_protection())
+                                {
+                                    Some(Ok(true)) => self.notify_success(
+                                        "Document protection removed."
+                                    ),
+                                    Some(Ok(false)) => self.notify_error(
+                                        "This PDF has no supported protection to remove; no changes were made."
+                                    ),
+                                    Some(Err(error)) => self.notify_error(format!(
+                                        "Could not remove PDF protection safely: {error}"
+                                    )),
+                                    None => self.notify_error(
+                                        "Open a PDF before removing protection."
+                                    ),
+                                }
                             }
                             crate::tools_panel::ToolAction::OpenLayersDialog => {
                                 self.modals_state.show_layers_manager = true;
