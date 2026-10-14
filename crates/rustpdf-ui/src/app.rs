@@ -1836,14 +1836,23 @@ impl App for RustPdfApp {
                         .iter()
                         .copied()
                         .collect();
-                    let max_selected = self
-                        .organizer_state
-                        .selected_pages
-                        .iter()
-                        .max()
-                        .copied()
-                        .unwrap_or(0);
-                    let first_selected = self.organizer_state.selected_pages.iter().next().copied();
+                    let fallback_page = self.viewer_state.current_page;
+                    let operation_pages = if selected_pages.is_empty() {
+                        vec![fallback_page]
+                    } else {
+                        selected_pages.clone()
+                    };
+                    let max_selected = selected_pages.iter().max().copied();
+                    let first_selected = selected_pages.first().copied().or(Some(fallback_page));
+
+                    let mut operation_result: Option<
+                        Result<(), rustpdf_engine::EngineError>,
+                    > = None;
+                    let mut operation_message = String::new();
+                    let mut history_result = None;
+                    let mut history_action = "";
+                    let mut selection_after = None;
+                    let mut feedback: Option<String> = None;
 
                     if let Some(session) =
                         self.active_tab.and_then(|idx| self.sessions.get_mut(idx))
@@ -1851,47 +1860,109 @@ impl App for RustPdfApp {
                         let doc_id = session.id;
                         match act {
                             OrganizerAction::Rotate(deg) => {
-                                let _ = session.rotate_pages(&selected_pages, deg);
+                                operation_result = Some(session.rotate_pages(&operation_pages, deg));
+                                operation_message = format!(
+                                    "Rotated {} page(s) by {deg} degrees.",
+                                    operation_pages.len()
+                                );
                             }
                             OrganizerAction::Delete => {
-                                let _ = session.delete_pages(&selected_pages);
+                                operation_result = Some(session.delete_pages(&operation_pages));
+                                operation_message =
+                                    format!("Deleted {} page(s).", operation_pages.len());
                             }
                             OrganizerAction::InsertBlank => {
-                                let _ = session.insert_blank_page(max_selected + 1, 612.0, 792.0);
+                                let insertion_index = max_selected
+                                    .map_or(fallback_page + 1, |page| page + 1)
+                                    .min(session.page_count());
+                                operation_result = Some(session.insert_blank_page(
+                                    insertion_index,
+                                    612.0,
+                                    792.0,
+                                ));
+                                operation_message = format!(
+                                    "Inserted a blank page at position {}.",
+                                    insertion_index + 1
+                                );
                             }
                             OrganizerAction::Duplicate => {
                                 if let Some(first) = first_selected {
-                                    let _ = session.duplicate_page(first);
+                                    operation_result = Some(session.duplicate_page(first));
+                                    operation_message =
+                                        format!("Duplicated page {}.", first + 1);
+                                } else {
+                                    feedback = Some("Select a page to duplicate.".to_string());
                                 }
                             }
                             OrganizerAction::MoveLeft => {
                                 if let Some(first) = first_selected {
                                     if first > 0 {
-                                        let _ = session.move_page(first, first - 1);
-                                        self.organizer_state.select_single(first - 1);
+                                        operation_result =
+                                            Some(session.move_page(first, first - 1));
+                                        operation_message = format!(
+                                            "Moved page {} one position left.",
+                                            first + 1
+                                        );
+                                        selection_after = Some(first - 1);
+                                    } else {
+                                        feedback = Some(
+                                            "The first page is already at the left edge."
+                                                .to_string(),
+                                        );
                                     }
                                 }
                             }
                             OrganizerAction::MoveRight => {
                                 if let Some(first) = first_selected {
                                     if first + 1 < session.page_count() {
-                                        let _ = session.move_page(first, first + 1);
-                                        self.organizer_state.select_single(first + 1);
+                                        operation_result =
+                                            Some(session.move_page(first, first + 1));
+                                        operation_message = format!(
+                                            "Moved page {} one position right.",
+                                            first + 1
+                                        );
+                                        selection_after = Some(first + 1);
+                                    } else {
+                                        feedback = Some(
+                                            "The last page is already at the right edge."
+                                                .to_string(),
+                                        );
                                     }
                                 }
                             }
                             OrganizerAction::Undo => {
-                                let _ = session.undo();
+                                history_result = Some(session.undo());
+                                history_action = "Undo";
                             }
                             OrganizerAction::Redo => {
-                                let _ = session.redo();
+                                history_result = Some(session.redo());
+                                history_action = "Redo";
                             }
                         }
                         self.organizer_state.invalidate_doc(doc_id);
                         self.viewer_state.invalidate_doc(doc_id);
+                    } else {
+                        feedback = Some("Open a PDF before organizing pages.".to_string());
                     }
 
-                    if matches!(act, OrganizerAction::Delete) {
+                    let delete_succeeded = matches!(
+                        operation_result.as_ref(),
+                        Some(Ok(()))
+                    ) && matches!(act, OrganizerAction::Delete);
+
+                    if let Some(page) = selection_after {
+                        self.organizer_state.select_single(page);
+                    }
+                    if let Some(result) = operation_result {
+                        self.report_document_operation(Some(result), operation_message);
+                    }
+                    if let Some(result) = history_result {
+                        self.report_history_operation(Some(result), history_action);
+                    }
+                    if let Some(message) = feedback {
+                        self.notify_error(message);
+                    }
+                    if delete_succeeded {
                         self.organizer_state.selected_pages.clear();
                     }
                 }
