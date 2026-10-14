@@ -149,6 +149,7 @@ pub enum ModalAction {
     Split(usize, PathBuf),
     ExecuteCommand(String),
     DocumentModified,
+    Notice { message: String, is_error: bool },
 }
 
 pub struct ModalsComponent;
@@ -228,13 +229,32 @@ impl ModalsComponent {
                     ui.add_space(18.0);
                     ui.horizontal(|ui| {
                         if ui.button("💾 Save Theme").clicked() {
-                            let _ = theme.save_persisted();
                             theme.apply_to_egui(ctx);
+                            action = Some(match theme.save_persisted() {
+                                Ok(()) => ModalAction::Notice {
+                                    message: "Theme settings saved.".to_string(),
+                                    is_error: false,
+                                },
+                                Err(error) => ModalAction::Notice {
+                                    message: format!("Failed to save theme settings: {error}"),
+                                    is_error: true,
+                                },
+                            });
                         }
 
                         if ui.button("↺ Reset to Default").clicked() {
                             *theme = AppTheme::default();
                             theme.apply_to_egui(ctx);
+                            action = Some(match theme.save_persisted() {
+                                Ok(()) => ModalAction::Notice {
+                                    message: "Default theme restored and saved.".to_string(),
+                                    is_error: false,
+                                },
+                                Err(error) => ModalAction::Notice {
+                                    message: format!("Defaults applied but could not be saved: {error}"),
+                                    is_error: true,
+                                },
+                            });
                         }
 
                         if ui.button("📤 Export JSON").clicked() {
@@ -242,9 +262,22 @@ impl ModalsComponent {
                                 .add_filter("JSON Theme", &["json"])
                                 .save_file()
                             {
-                                if let Ok(data) = serde_json::to_string_pretty(theme) {
-                                    let _ = std::fs::write(path, data);
-                                }
+                                action = Some(match serde_json::to_string_pretty(theme) {
+                                    Ok(data) => match std::fs::write(&path, data) {
+                                        Ok(()) => ModalAction::Notice {
+                                            message: format!("Theme exported to '{}'.", path.display()),
+                                            is_error: false,
+                                        },
+                                        Err(error) => ModalAction::Notice {
+                                            message: format!("Failed to export theme: {error}"),
+                                            is_error: true,
+                                        },
+                                    },
+                                    Err(error) => ModalAction::Notice {
+                                        message: format!("Failed to serialize theme: {error}"),
+                                        is_error: true,
+                                    },
+                                });
                             }
                         }
 
@@ -253,12 +286,32 @@ impl ModalsComponent {
                                 .add_filter("JSON Theme", &["json"])
                                 .pick_file()
                             {
-                                if let Ok(data) = std::fs::read_to_string(path) {
-                                    if let Ok(imported) = serde_json::from_str(&data) {
+                                let imported = std::fs::read_to_string(&path)
+                                    .map_err(|error| format!("Failed to read theme: {error}"))
+                                    .and_then(|data| {
+                                        serde_json::from_str::<AppTheme>(&data)
+                                            .map_err(|error| format!("Invalid theme JSON: {error}"))
+                                    });
+                                action = Some(match imported {
+                                    Ok(imported) => {
                                         *theme = imported;
                                         theme.apply_to_egui(ctx);
+                                        match theme.save_persisted() {
+                                            Ok(()) => ModalAction::Notice {
+                                                message: "Theme imported, applied, and saved.".to_string(),
+                                                is_error: false,
+                                            },
+                                            Err(error) => ModalAction::Notice {
+                                                message: format!("Theme imported but could not be saved: {error}"),
+                                                is_error: true,
+                                            },
+                                        }
                                     }
-                                }
+                                    Err(message) => ModalAction::Notice {
+                                        message,
+                                        is_error: true,
+                                    },
+                                });
                             }
                         }
                     });
@@ -309,10 +362,29 @@ impl ModalsComponent {
                     ui.add_space(16.0);
                     ui.horizontal(|ui| {
                         if ui.button("💾 Save Settings").clicked() {
-                            let _ = thumbnails.save_persisted();
+                            action = Some(match thumbnails.save_persisted() {
+                                Ok(()) => ModalAction::Notice {
+                                    message: "Thumbnail settings saved.".to_string(),
+                                    is_error: false,
+                                },
+                                Err(error) => ModalAction::Notice {
+                                    message: format!("Failed to save thumbnail settings: {error}"),
+                                    is_error: true,
+                                },
+                            });
                         }
                         if ui.button("↺ Reset Defaults").clicked() {
                             *thumbnails = ThumbnailConfig::default();
+                            action = Some(match thumbnails.save_persisted() {
+                                Ok(()) => ModalAction::Notice {
+                                    message: "Thumbnail defaults restored and saved.".to_string(),
+                                    is_error: false,
+                                },
+                                Err(error) => ModalAction::Notice {
+                                    message: format!("Defaults applied but could not be saved: {error}"),
+                                    is_error: true,
+                                },
+                            });
                         }
                     });
                 });
@@ -364,7 +436,7 @@ impl ModalsComponent {
                         ));
 
                         ui.add_space(16.0);
-                        if ui.button("💾 Apply & Save Metadata").clicked() {
+                        if ui.button("Apply Metadata").clicked() {
                             let mut updated = s.model.metadata.clone();
                             updated.title = if title.is_empty() { None } else { Some(title) };
                             updated.author = if author.is_empty() {
@@ -382,7 +454,16 @@ impl ModalsComponent {
                             } else {
                                 Some(keywords)
                             };
-                            let _ = s.update_metadata(updated);
+                            action = Some(match s.update_metadata(updated) {
+                                Ok(()) => ModalAction::Notice {
+                                    message: "Metadata applied. Save the PDF to write the changes to disk.".to_string(),
+                                    is_error: false,
+                                },
+                                Err(error) => ModalAction::Notice {
+                                    message: format!("Failed to update metadata: {error}"),
+                                    is_error: true,
+                                },
+                            });
                         }
                     });
             }
@@ -688,18 +769,38 @@ impl ModalsComponent {
                         ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             if ui.button("Reset All Fields").clicked() {
-                                let _ = s.reset_form_fields();
+                                action = Some(match s.reset_form_fields() {
+                                    Ok(count) => ModalAction::Notice {
+                                        message: format!("Reset {count} writable form field(s). Save the PDF to persist changes."),
+                                        is_error: false,
+                                    },
+                                    Err(error) => ModalAction::Notice {
+                                        message: format!("Failed to reset form fields: {error}"),
+                                        is_error: true,
+                                    },
+                                });
                             }
                             if ui.button("Export Form Data (JSON)").clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("JSON", &["json"])
                                     .save_file()
                                 {
-                                    if let Ok(json) =
-                                        rustpdf_forms::export_form_data_json(s.cos_doc.inner())
-                                    {
-                                        let _ = std::fs::write(path, json);
-                                    }
+                                    action = Some(match rustpdf_forms::export_form_data_json(s.cos_doc.inner()) {
+                                        Ok(json) => match std::fs::write(&path, json) {
+                                            Ok(()) => ModalAction::Notice {
+                                                message: format!("Form data exported to '{}'.", path.display()),
+                                                is_error: false,
+                                            },
+                                            Err(error) => ModalAction::Notice {
+                                                message: format!("Failed to export form data: {error}"),
+                                                is_error: true,
+                                            },
+                                        },
+                                        Err(error) => ModalAction::Notice {
+                                            message: format!("Failed to read form data: {error}"),
+                                            is_error: true,
+                                        },
+                                    });
                                 }
                             }
                         });
