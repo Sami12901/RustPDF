@@ -119,18 +119,47 @@ impl DocumentSession {
         }
     }
 
+    /// Applies an edit to a cloned PDF and commits it only after serialization and
+    /// model validation succeed. If the edit fails, the live document and history stay
+    /// unchanged even when a low-level operation performed several mutations first.
+    fn mutate_transactionally<T, E, F>(
+        &mut self,
+        description: &str,
+        mutate: F,
+    ) -> Result<T, EngineError>
+    where
+        EngineError: From<E>,
+        F: FnOnce(&mut CosDoc) -> Result<T, E>,
+    {
+        let mut candidate = self.cos_doc.clone();
+        let output = mutate(&mut candidate)?;
+
+        let mut new_bytes = Vec::new();
+        candidate.save_to(&mut new_bytes)?;
+        let validated_doc = CosDoc::load_mem(&new_bytes)?;
+        let validated_model = DocumentModel::from_cos(&validated_doc, new_bytes.len())?;
+
+        let old_bytes = (*self.raw_bytes).clone();
+        self.history.push(description, old_bytes, new_bytes.clone());
+        self.cos_doc = validated_doc;
+        self.raw_bytes = Arc::new(new_bytes);
+        self.model = validated_model;
+        self.is_dirty = true;
+        Ok(output)
+    }
+
     /// Rotates specified pages by degrees.
     pub fn rotate_pages(&mut self, pages: &[usize], degrees: i32) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::rotate_pages(self.cos_doc.inner_mut(), pages, degrees)?;
-        self.commit_in_memory_change(&format!("Rotate {degrees}°"), old_bytes)
+        self.mutate_transactionally(&format!("Rotate {degrees}°"), |doc| {
+            rustpdf_organize::rotate_pages(doc.inner_mut(), pages, degrees)
+        })
     }
 
     /// Deletes specified pages.
     pub fn delete_pages(&mut self, pages: &[usize]) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::delete_pages(self.cos_doc.inner_mut(), pages)?;
-        self.commit_in_memory_change("Delete pages", old_bytes)
+        self.mutate_transactionally("Delete pages", |doc| {
+            rustpdf_organize::delete_pages(doc.inner_mut(), pages)
+        })
     }
 
     /// Inserts a blank page.
@@ -140,16 +169,16 @@ impl DocumentSession {
         width: f32,
         height: f32,
     ) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::insert_blank_page(self.cos_doc.inner_mut(), index, width, height)?;
-        self.commit_in_memory_change("Insert blank page", old_bytes)
+        self.mutate_transactionally("Insert blank page", |doc| {
+            rustpdf_organize::insert_blank_page(doc.inner_mut(), index, width, height)
+        })
     }
 
     /// Duplicates a page.
     pub fn duplicate_page(&mut self, index: usize) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::duplicate_page(self.cos_doc.inner_mut(), index)?;
-        self.commit_in_memory_change("Duplicate page", old_bytes)
+        self.mutate_transactionally("Duplicate page", |doc| {
+            rustpdf_organize::duplicate_page(doc.inner_mut(), index)
+        })
     }
 
     /// Moves a page from one index to another (0-indexed) with undo/redo history.
@@ -157,16 +186,17 @@ impl DocumentSession {
         if from == to {
             return Ok(());
         }
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::move_page(self.cos_doc.inner_mut(), from, to)?;
-        self.commit_in_memory_change(&format!("Move page {} to {}", from + 1, to + 1), old_bytes)
+        self.mutate_transactionally(
+            &format!("Move page {} to {}", from + 1, to + 1),
+            |doc| rustpdf_organize::move_page(doc.inner_mut(), from, to),
+        )
     }
 
     /// Reorders pages according to the specified index order with undo/redo history.
     pub fn reorder_pages(&mut self, new_order: &[usize]) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_organize::reorder_pages(self.cos_doc.inner_mut(), new_order)?;
-        self.commit_in_memory_change("Reorder pages", old_bytes)
+        self.mutate_transactionally("Reorder pages", |doc| {
+            rustpdf_organize::reorder_pages(doc.inner_mut(), new_order)
+        })
     }
 
     /// Undoes the last modification.
