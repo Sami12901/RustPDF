@@ -445,27 +445,31 @@ fn set_field_value_in_place(
 
 /// Resets a named form field to its default value (/DV), or removes /V if no default exists.
 pub fn reset_field(doc: &mut LopdfDoc, field_name: &str) -> Result<(), FormError> {
-    let fields = get_form_fields(doc);
-    let target = fields
+    let target = get_form_fields(doc)
         .into_iter()
-        .find(|f| f.name == field_name)
+        .find(|field| field.name == field_name)
         .ok_or_else(|| FormError::FieldNotFound(field_name.to_string()))?;
 
     if target.read_only {
         return Err(FormError::ReadOnlyField(field_name.to_string()));
     }
 
-    let dict = doc.get_object_mut(target.object_id)?.as_dict_mut()?;
-    if let Some(dv) = target.default_value {
-        dict.set(
-            b"V",
-            Object::String(dv.as_bytes().to_vec(), StringFormat::Literal),
-        );
-    } else {
-        dict.remove(b"V");
+    if let Some(default_value) = target.default_value.as_deref() {
+        // Reuse typed setters so checkbox/radio defaults update /V and each widget's /AS.
+        return set_field_value(doc, field_name, default_value);
     }
 
-    set_need_appearances(doc);
+    if matches!(target.kind, FieldKind::Checkbox | FieldKind::Radio) {
+        return set_field_value(doc, field_name, "Off");
+    }
+
+    let mut candidate = doc.clone();
+    candidate
+        .get_object_mut(target.object_id)?
+        .as_dict_mut()?
+        .remove(b"V");
+    set_need_appearances(&mut candidate);
+    *doc = candidate;
     Ok(())
 }
 
