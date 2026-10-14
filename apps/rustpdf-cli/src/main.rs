@@ -151,12 +151,25 @@ fn main() -> Result<()> {
             out,
             scale,
         } => {
+            if page == 0 {
+                anyhow::bail!("Page number must be at least 1");
+            }
+            if !scale.is_finite() || scale <= 0.0 {
+                anyhow::bail!("Render scale must be a finite positive number");
+            }
+
             let bytes = fs::read(&input)
                 .with_context(|| format!("Failed to read '{}'", input.display()))?;
+            let pdf = lopdf::Document::load_mem(&bytes)
+                .with_context(|| format!("Failed to parse '{}'", input.display()))?;
+            let page_count = pdf.get_pages().len();
+            if page > page_count {
+                anyhow::bail!("Page {} out of range (1..{})", page, page_count);
+            }
 
             let pool = rustpdf_render::RenderPool::new(1);
             let req = rustpdf_render::RenderRequest {
-                page_index: page.saturating_sub(1),
+                page_index: page - 1,
                 scale,
                 tag: 1,
             };
@@ -219,15 +232,20 @@ fn main() -> Result<()> {
             let doc = lopdf::Document::load_mem(&bytes)?;
             let total = doc.get_pages().len();
 
-            let to_keep: Vec<usize> = pages
-                .into_iter()
-                .filter(|&p| p >= 1 && p <= total)
-                .map(|p| p - 1)
-                .collect();
-
-            if to_keep.is_empty() {
-                anyhow::bail!("No valid pages to extract");
+            if pages.is_empty() {
+                anyhow::bail!("Specify at least one page to extract with --pages");
             }
+            for &page in &pages {
+                if page == 0 || page > total {
+                    anyhow::bail!("Page {} out of range (1..{})", page, total);
+                }
+            }
+
+            // Page selection is a set: ignore duplicate page numbers while preserving
+            // the source PDF's original page order.
+            let requested: std::collections::BTreeSet<usize> =
+                pages.into_iter().map(|page| page - 1).collect();
+            let to_keep: Vec<usize> = requested.into_iter().collect();
 
             let mut new_doc = doc.clone();
             let to_delete: Vec<u32> = (0..total)
