@@ -569,10 +569,10 @@ mod tests {
         nested_pages.set(
             b"MediaBox",
             Object::Array(vec![
-                Object::Integer(0),
-                Object::Integer(0),
-                Object::Integer(612),
-                Object::Integer(792),
+                Object::Real(0.0),
+                Object::Real(0.0),
+                Object::Real(612.0),
+                Object::Real(792.0),
             ]),
         );
         nested_pages.set(b"Resources", Object::Reference(resources_id));
