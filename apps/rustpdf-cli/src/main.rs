@@ -10,7 +10,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "rustpdf-cli",
-    version = "0.1.0",
+    version,
     about = "RustPdf Command-Line PDF Workbench"
 )]
 struct Cli {
