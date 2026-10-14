@@ -92,8 +92,12 @@ fn copy_inherited_page_attributes(
         }
 
         let mut cursor = parent_id;
+        let mut visited = std::collections::HashSet::new();
         let mut found = None;
         while let Some(id) = cursor {
+            if !visited.insert(id) {
+                break;
+            }
             let parent = doc.get_object(id)?.as_dict()?;
             if let Ok(value) = parent.get(key) {
                 found = Some(value.clone());
