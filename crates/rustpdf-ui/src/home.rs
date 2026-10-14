@@ -21,6 +21,8 @@ pub struct RecentDocument {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RecentFilesManager {
     pub files: Vec<RecentDocument>,
+    #[serde(skip)]
+    pub last_error: Option<String>,
 }
 
 impl RecentFilesManager {
@@ -38,12 +40,25 @@ impl RecentFilesManager {
 
     pub fn load_persisted() -> Self {
         let path = Self::config_path();
-        if let Ok(data) = fs::read_to_string(&path) {
-            if let Ok(mgr) = serde_json::from_str(&data) {
-                return mgr;
-            }
+        match fs::read_to_string(&path) {
+            Ok(data) => match serde_json::from_str::<Self>(&data) {
+                Ok(mut mgr) => {
+                    mgr.last_error = None;
+                    mgr
+                }
+                Err(error) => Self {
+                    last_error: Some(format!(
+                        "Recent-file history could not be parsed and was reset: {error}"
+                    )),
+                    ..Self::default()
+                },
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            Err(error) => Self {
+                last_error: Some(format!("Could not read recent-file history: {error}")),
+                ..Self::default()
+            },
         }
-        Self::default()
     }
 
     pub fn save_persisted(&self) -> Result<(), std::io::Error> {
@@ -101,20 +116,29 @@ impl RecentFilesManager {
             self.files.truncate(50);
         }
 
-        let _ = self.save_persisted();
+        self.last_error = self
+            .save_persisted()
+            .err()
+            .map(|error| format!("Could not persist recent-file history: {error}"));
     }
 
     pub fn toggle_pin(&mut self, index: usize) {
         if let Some(item) = self.files.get_mut(index) {
             item.is_pinned = !item.is_pinned;
-            let _ = self.save_persisted();
+            self.last_error = self
+                .save_persisted()
+                .err()
+                .map(|error| format!("Could not persist pin change: {error}"));
         }
     }
 
     pub fn remove(&mut self, index: usize) {
         if index < self.files.len() {
             self.files.remove(index);
-            let _ = self.save_persisted();
+            self.last_error = self
+                .save_persisted()
+                .err()
+                .map(|error| format!("Could not persist history removal: {error}"));
         }
     }
 }
@@ -426,7 +450,10 @@ impl HomeView {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if !recent.files.is_empty() && ui.button("Clear History").clicked() {
                         recent.files.clear();
-                        let _ = recent.save_persisted();
+                        recent.last_error = recent
+                            .save_persisted()
+                            .err()
+                            .map(|error| format!("Could not clear persisted history: {error}"));
                     }
                 });
             });
