@@ -751,16 +751,25 @@ impl ModalsComponent {
 
                             if ui.button("Remove Protection").clicked() {
                                 match s.remove_protection() {
-                                    Ok(()) => {
+                                    Ok(true) => {
                                         action = Some(ModalAction::Notification(
-                                            "Document restrictions removed.".to_string(),
+                                            "Document protection removed.".to_string(),
                                             false,
                                         ));
                                         close_dialog = true;
                                     }
+                                    Ok(false) => {
+                                        action = Some(ModalAction::Notification(
+                                            "This PDF is not encrypted; no changes were made."
+                                                .to_string(),
+                                            false,
+                                        ));
+                                    }
                                     Err(error) => {
                                         action = Some(ModalAction::Notification(
-                                            format!("Failed to remove protection: {error}"),
+                                            format!(
+                                                "Could not remove protection safely: {error}"
+                                            ),
                                             true,
                                         ));
                                     }
