@@ -1,5 +1,7 @@
 # RustPdf — Feature Specification & Parity Matrix
 
+**Release target:** v0.5.0. This matrix describes implemented code, not just visible menu items. OCR, genuine redaction, PDF password encryption/decryption, digital certificate signing, and file comparison remain unavailable in this release. The UI must report those limitations instead of silently claiming success.
+
 This document provides a comprehensive catalogue of all capabilities in **RustPdf** compared to standard PDF workbench requirements.
 
 ---
@@ -71,7 +73,7 @@ This document provides a comprehensive catalogue of all capabilities in **RustPd
 | | Digital Signatures (PKCS#7) | **Planned** | Certificate signing and validation planned |
 | | File Comparison (Diff) | **Planned** | Visual page-by-page comparison planned |
 | **Privacy & Security** | 100% Offline | **Implemented** | Zero telemetry, zero analytics, zero network requests |
-| | Password Protection / Encryption | **Unsupported** | Standard ISO 32000 encryption disabled until full handler is ready |
+| | Password Protection / Encryption / Decryption | **Unsupported** | No cryptographic handler is available. Protect/remove-protection actions return an explicit error and do not modify the PDF. |
 | | Bounded resource limits | **Implemented** | Decompression caps, max render side limits |
 | | No embedded JS execution | **Unsupported** | Untrusted scripts safely ignored |
 
