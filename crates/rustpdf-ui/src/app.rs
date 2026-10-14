@@ -1033,7 +1033,7 @@ impl App for RustPdfApp {
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(
-                        RichText::new("RustPdf v0.4.0")
+                        RichText::new(format!("RustPDF v{}", env!("CARGO_PKG_VERSION")))
                             .size(11.0)
                             .color(Color32::from_gray(130)),
                     );
@@ -1219,31 +1219,37 @@ impl App for RustPdfApp {
                                 self.modals_state.show_edit_content_dialog = true;
                             }
                             crate::tools_panel::ToolAction::ExportWord => {
-                                if let Some(s) = self.active_session() {
-                                    if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("Word Document", &["doc", "docx", "rtf"])
-                                        .set_file_name(format!("{}.doc", s.display_name.trim_end_matches(".pdf")))
-                                        .save_file()
-                                    {
-                                        let doc = rustpdf_export::export_word_doc(s.cos_doc.inner(), &s.display_name);
-                                        match std::fs::write(&path, doc) {
-                                            Ok(()) => self.notify_success(format!("Exported Word document: {}", path.display())),
-                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
-                                        }
-                                    }
-                                }
+                                self.notify_error(
+                                    "DOC/DOCX export is not implemented. Export as RTF, which Word can open."
+                                );
+                                self.drawer_page = crate::tools_panel::DrawerPage::ExportPdf;
                             }
                             crate::tools_panel::ToolAction::ExportRtf => {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("Rich Text Format", &["rtf"])
-                                        .set_file_name(format!("{}.rtf", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!(
+                                            "{}.rtf",
+                                            s.display_name.trim_end_matches(".pdf")
+                                        ))
                                         .save_file()
                                     {
-                                        let rtf = rustpdf_export::export_rtf_doc(s.cos_doc.inner(), &s.display_name);
-                                        match std::fs::write(&path, rtf) {
-                                            Ok(()) => self.notify_success(format!("Exported RTF: {}", path.display())),
-                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        match rustpdf_export::try_export_rtf_doc(
+                                            s.cos_doc.inner(),
+                                            &s.display_name,
+                                        ) {
+                                            Ok(rtf) => match std::fs::write(&path, rtf) {
+                                                Ok(()) => self.notify_success(format!(
+                                                    "Exported RTF: {}",
+                                                    path.display()
+                                                )),
+                                                Err(error) => self.notify_error(format!(
+                                                    "Export failed: {error}"
+                                                )),
+                                            },
+                                            Err(error) => self.notify_error(format!(
+                                                "Text extraction failed; RTF was not exported: {error}"
+                                            )),
                                         }
                                     }
                                 }
@@ -1252,13 +1258,28 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("HTML Web Page", &["html", "htm"])
-                                        .set_file_name(format!("{}.html", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!(
+                                            "{}.html",
+                                            s.display_name.trim_end_matches(".pdf")
+                                        ))
                                         .save_file()
                                     {
-                                        let html = rustpdf_export::export_html_doc(s.cos_doc.inner(), &s.display_name);
-                                        match std::fs::write(&path, html) {
-                                            Ok(()) => self.notify_success(format!("Exported HTML: {}", path.display())),
-                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        match rustpdf_export::try_export_html_doc(
+                                            s.cos_doc.inner(),
+                                            &s.display_name,
+                                        ) {
+                                            Ok(html) => match std::fs::write(&path, html) {
+                                                Ok(()) => self.notify_success(format!(
+                                                    "Exported HTML: {}",
+                                                    path.display()
+                                                )),
+                                                Err(error) => self.notify_error(format!(
+                                                    "Export failed: {error}"
+                                                )),
+                                            },
+                                            Err(error) => self.notify_error(format!(
+                                                "Text extraction failed; HTML was not exported: {error}"
+                                            )),
                                         }
                                     }
                                 }
@@ -1267,13 +1288,25 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("Plain Text", &["txt"])
-                                        .set_file_name(format!("{}.txt", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!(
+                                            "{}.txt",
+                                            s.display_name.trim_end_matches(".pdf")
+                                        ))
                                         .save_file()
                                     {
-                                        let text = rustpdf_export::export_plain_text_doc(s.cos_doc.inner());
-                                        match std::fs::write(&path, text) {
-                                            Ok(()) => self.notify_success(format!("Exported Text: {}", path.display())),
-                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        match rustpdf_export::try_export_plain_text_doc(s.cos_doc.inner()) {
+                                            Ok(text) => match std::fs::write(&path, text) {
+                                                Ok(()) => self.notify_success(format!(
+                                                    "Exported text: {}",
+                                                    path.display()
+                                                )),
+                                                Err(error) => self.notify_error(format!(
+                                                    "Export failed: {error}"
+                                                )),
+                                            },
+                                            Err(error) => self.notify_error(format!(
+                                                "Text extraction failed; no text file was written: {error}"
+                                            )),
                                         }
                                     }
                                 }
@@ -1282,13 +1315,25 @@ impl App for RustPdfApp {
                                 if let Some(s) = self.active_session() {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("CSV Spreadsheet", &["csv"])
-                                        .set_file_name(format!("{}.csv", s.display_name.trim_end_matches(".pdf")))
+                                        .set_file_name(format!(
+                                            "{}.csv",
+                                            s.display_name.trim_end_matches(".pdf")
+                                        ))
                                         .save_file()
                                     {
-                                        let csv = rustpdf_export::export_csv_doc(s.cos_doc.inner());
-                                        match std::fs::write(&path, csv) {
-                                            Ok(()) => self.notify_success(format!("Exported CSV: {}", path.display())),
-                                            Err(e) => self.notify_error(format!("Export failed: {e}")),
+                                        match rustpdf_export::try_export_csv_doc(s.cos_doc.inner()) {
+                                            Ok(csv) => match std::fs::write(&path, csv) {
+                                                Ok(()) => self.notify_success(format!(
+                                                    "Exported CSV: {}",
+                                                    path.display()
+                                                )),
+                                                Err(error) => self.notify_error(format!(
+                                                    "Export failed: {error}"
+                                                )),
+                                            },
+                                            Err(error) => self.notify_error(format!(
+                                                "Text extraction failed; CSV was not exported: {error}"
+                                            )),
                                         }
                                     }
                                 }
@@ -1305,16 +1350,9 @@ impl App for RustPdfApp {
                                 }
                             }
                             crate::tools_panel::ToolAction::ExportPostScript => {
-                                if let Some(s) = self.active_session() {
-                                    if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("Text / PostScript", &["ps", "txt"])
-                                        .save_file()
-                                    {
-                                        let text = rustpdf_export::export_plain_text_doc(s.cos_doc.inner());
-                                        let _ = std::fs::write(&path, text);
-                                        self.notify_success(format!("Exported: {}", path.display()));
-                                    }
-                                }
+                                self.notify_error(
+                                    "PostScript export is not implemented yet; no file was written."
+                                );
                             }
                             crate::tools_panel::ToolAction::ExportImagePng => {
                                 let curr = self.viewer_state.current_page;
