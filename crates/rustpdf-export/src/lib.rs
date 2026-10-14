@@ -210,8 +210,16 @@ fn escape_rtf(s: &str) -> String {
             '}' => out.push_str("\\}"),
             '\n' => out.push_str("\\par\n"),
             '\r' => {}
+            '\t' => out.push_str("\\tab "),
             _ if c.is_ascii() => out.push(c),
-            _ => out.push_str(&format!("\\u{}?", c as u32)),
+            _ => {
+                // RTF uses signed 16-bit UTF-16 code units, not Unicode scalar values.
+                // Encoding UTF-16 here also handles non-BMP characters via surrogate pairs.
+                let mut units = [0u16; 2];
+                for unit in c.encode_utf16(&mut units).iter() {
+                    out.push_str(&format!("\\u{}?", *unit as i16));
+                }
+            },
         }
     }
     out
@@ -372,6 +380,31 @@ mod tests {
 
         let csv = export_csv_doc(&doc);
         assert!(csv.starts_with("Page,Line,Text"));
+    }
+
+    #[test]
+    fn test_fallible_export_formats_return_complete_output() {
+        let bytes = create_blank_pdf(2, 612.0, 792.0, "Fallible Export Test").unwrap();
+        let doc = LopdfDoc::load_mem(&bytes).unwrap();
+
+        assert_eq!(try_extract_document_text(&doc).unwrap().len(), 2);
+        assert!(try_export_plain_text_doc(&doc).is_ok());
+        assert!(try_export_html_doc(&doc, "Fallible Export Test")
+            .unwrap()
+            .contains("</html>"));
+        assert!(try_export_rtf_doc(&doc, "Fallible Export Test")
+            .unwrap()
+            .starts_with("{\\rtf1"));
+        assert!(try_export_word_doc(&doc, "Fallible Export Test")
+            .unwrap()
+            .starts_with("{\\rtf1"));
+        assert!(try_export_csv_doc(&doc).unwrap().starts_with("Page,Line,Text"));
+    }
+
+    #[test]
+    fn test_rtf_encodes_non_bmp_unicode_as_utf16_surrogate_pair() {
+        assert_eq!(escape_rtf("😀"), "\\u-10179?\\u-8704?");
+        assert_eq!(escape_rtf("tab\tvalue"), "tab\\tab value");
     }
 
     #[test]
