@@ -1256,10 +1256,10 @@ impl App for RustPdfApp {
                                 self.notify_error("Digital certificate signing is not available yet.");
                             }
                             crate::tools_panel::ToolAction::PrintProduction => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Print-production tools are not available yet.");
                             }
                             crate::tools_panel::ToolAction::MeasureObjects => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Object measurement is not available yet.");
                             }
                             crate::tools_panel::ToolAction::CompareFiles => {
                                 self.notify_error("File comparison is not available yet.");
@@ -1268,16 +1268,16 @@ impl App for RustPdfApp {
                                 self.active_workspace = ActiveWorkspace::Home;
                             }
                             crate::tools_panel::ToolAction::Accessibility => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Accessibility auditing is not available yet.");
                             }
                             crate::tools_panel::ToolAction::PdfStandards => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Automated PDF standards validation is not available yet.");
                             }
                             crate::tools_panel::ToolAction::SearchIndex => {
                                 self.search_state.open();
                             }
                             crate::tools_panel::ToolAction::JavaScript => {
-                                self.modals_state.show_properties = true;
+                                self.notify_error("Embedded PDF JavaScript is deliberately not executed for security.");
                             }
                             crate::tools_panel::ToolAction::AddStickyNote => {
                                 self.modals_state.show_annotations_manager = true;
@@ -1311,8 +1311,11 @@ impl App for RustPdfApp {
                                 }
                             }
                             crate::tools_panel::ToolAction::RemoveProtection => {
-                                if let Some(s) = self.active_session_mut() {
-                                    let _ = s.remove_protection();
+                                let result = self.active_session_mut().map(|s| s.remove_protection());
+                                match result {
+                                    Some(Ok(())) => self.notify_success("PDF protection removed."),
+                                    Some(Err(error)) => self.notify_error(error.to_string()),
+                                    None => self.notify_error("Open a PDF before removing protection."),
                                 }
                             }
                             crate::tools_panel::ToolAction::OpenLayersDialog => {
