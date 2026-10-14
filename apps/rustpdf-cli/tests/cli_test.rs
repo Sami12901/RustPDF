@@ -123,6 +123,8 @@ fn test_text_command_rejects_page_zero() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("out of range"));
 
+}
+
 #[test]
 fn test_extract_cli_preserves_requested_page_order() {
     let dir = tempfile::tempdir().unwrap();
@@ -203,4 +205,3 @@ fn test_render_cli_rejects_page_zero() {
     assert!(!output.exists());
 }
 
-}
