@@ -577,8 +577,7 @@ mod tests {
 
     #[test]
     fn rejects_pdf_without_catalog() {
-        let bytes =
-            rustpdf_export::create_blank_pdf(1, 612.0, 792.0, "Missing Catalog").unwrap();
+        let bytes = rustpdf_export::create_blank_pdf(1, 612.0, 792.0, "Missing Catalog").unwrap();
         let mut raw = LopdfDoc::load_mem(&bytes).unwrap();
         raw.trailer.remove(b"Root");
         let mut malformed = Vec::new();
