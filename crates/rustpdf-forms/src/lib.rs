@@ -37,102 +37,245 @@ pub struct FormField {
     pub object_id: (u32, u16),
 }
 
-/// Retrieves all interactive form fields defined in the document's /AcroForm.
+#[derive(Clone, Default)]
+struct InheritedFieldAttributes {
+    field_type: Option<Vec<u8>>,
+    flags: i64,
+    value: Option<Object>,
+    default_value: Option<Object>,
+    options: Option<Object>,
+}
+
+fn field_children(
+    doc: &LopdfDoc,
+    field_dict: &lopdf::Dictionary,
+) -> Vec<ObjectId> {
+    let kids = match field_dict.get(b"Kids").ok() {
+        Some(Object::Array(kids)) => kids.clone(),
+        Some(Object::Reference(id)) => doc
+            .get_object(*id)
+            .and_then(|object| object.as_array())
+            .cloned()
+            .unwrap_or_default(),
+        _ => return Vec::new(),
+    };
+
+    kids.into_iter()
+        .filter_map(|child| child.as_reference().ok().copied())
+        .filter(|child_id| {
+            let Ok(child) = doc.get_object(*child_id).and_then(|object| object.as_dict()) else {
+                return false;
+            };
+
+            let is_widget = child
+                .get(b"Subtype")
+                .ok()
+                .and_then(|value| value.as_name().ok())
+                .is_some_and(|name| name == b"Widget");
+            let is_named = child.get(b"T").is_ok();
+            let has_own_type = child.get(b"FT").is_ok();
+            let has_children = child.get(b"Kids").is_ok();
+
+            // Widget annotations are children of a terminal field but are not
+            // themselves logical fields unless they also carry field attributes.
+            !(is_widget && !is_named && !has_own_type && !has_children)
+        })
+        .collect()
+}
+
+fn collect_fields_recursive(
+    doc: &LopdfDoc,
+    field_id: ObjectId,
+    parent_name: &str,
+    inherited: &InheritedFieldAttributes,
+    visited: &mut std::collections::HashSet<ObjectId>,
+    output: &mut Vec<FormField>,
+) {
+    if !visited.insert(field_id) {
+        return;
+    }
+
+    let Ok(field_dict) = doc.get_object(field_id).and_then(|object| object.as_dict()) else {
+        return;
+    };
+
+    let partial_name = field_dict
+        .get(b"T")
+        .ok()
+        .and_then(to_string_lossy)
+        .filter(|name| !name.is_empty());
+    let full_name = match partial_name {
+        Some(partial) if parent_name.is_empty() => partial,
+        Some(partial) => format!("{parent_name}.{partial}"),
+        None => parent_name.to_string(),
+    };
+
+    let field_type = field_dict
+        .get(b"FT")
+        .ok()
+        .and_then(|value| value.as_name().ok())
+        .map(|name| name.to_vec())
+        .or_else(|| inherited.field_type.clone());
+    let flags = field_dict
+        .get(b"Ff")
+        .ok()
+        .and_then(to_i64)
+        .unwrap_or(inherited.flags);
+    let value = field_dict
+        .get(b"V")
+        .ok()
+        .cloned()
+        .or_else(|| inherited.value.clone());
+    let default_value = field_dict
+        .get(b"DV")
+        .ok()
+        .cloned()
+        .or_else(|| inherited.default_value.clone());
+    let options = field_dict
+        .get(b"Opt")
+        .ok()
+        .cloned()
+        .or_else(|| inherited.options.clone());
+
+    let children = field_children(doc, field_dict);
+    if !children.is_empty() {
+        let next_inherited = InheritedFieldAttributes {
+            field_type,
+            flags,
+            value,
+            default_value,
+            options,
+        };
+        for child_id in children {
+            collect_fields_recursive(
+                doc,
+                child_id,
+                &full_name,
+                &next_inherited,
+                visited,
+                output,
+            );
+        }
+        return;
+    }
+
+    let Some(field_type) = field_type else {
+        return;
+    };
+    let kind = match field_type.as_slice() {
+        b"Tx" => FieldKind::Text,
+        b"Btn" => {
+            // Bit 16 marks radio buttons; otherwise this is a checkbox field.
+            if (flags & (1 << 15)) != 0 {
+                FieldKind::Radio
+            } else {
+                FieldKind::Checkbox
+            }
+        }
+        b"Ch" => FieldKind::Choice,
+        _ => FieldKind::Unknown,
+    };
+
+    let mut parsed_options = Vec::new();
+    if let Some(options) = options.as_ref() {
+        let option_array = match options {
+            Object::Array(values) => Some(values),
+            Object::Reference(id) => doc
+                .get_object(*id)
+                .ok()
+                .and_then(|object| object.as_array().ok()),
+            _ => None,
+        };
+        if let Some(option_array) = option_array {
+            for option in option_array {
+                if let Some(option) = to_string_lossy(option) {
+                    parsed_options.push(option);
+                } else if let Ok(pair) = option.as_array() {
+                    if let Some(export_value) = pair.first().and_then(to_string_lossy) {
+                        parsed_options.push(export_value);
+                    }
+                }
+            }
+        }
+    }
+
+    output.push(FormField {
+        name: if full_name.is_empty() {
+            format!("UnnamedField-{}-{}", field_id.0, field_id.1)
+        } else {
+            full_name
+        },
+        kind,
+        value: value.as_ref().and_then(to_string_lossy),
+        default_value: default_value.as_ref().and_then(to_string_lossy),
+        read_only: (flags & 1) != 0,
+        options: parsed_options,
+        object_id: field_id,
+    });
+}
+
+/// Retrieves terminal AcroForm fields, including nested names and inherited field attributes.
+/// Widget annotations are excluded from the logical field list, and parent references are
+/// cycle-checked to avoid hanging on malformed documents.
 pub fn get_form_fields(doc: &LopdfDoc) -> Vec<FormField> {
     let catalog = match doc
         .trailer
         .get(b"Root")
         .ok()
-        .and_then(|r| doc.get_object(r.as_reference().ok()?).ok())
+        .and_then(|root| root.as_reference().ok())
+        .and_then(|root_id| doc.get_object(root_id).ok())
+        .and_then(|root| root.as_dict().ok())
     {
-        Some(Object::Dictionary(d)) => d,
-        _ => return Vec::new(),
+        Some(catalog) => catalog,
+        None => return Vec::new(),
     };
 
     let acro_form = match catalog
         .get(b"AcroForm")
         .ok()
-        .and_then(|r| doc.get_object(r.as_reference().ok()?).ok())
+        .and_then(|object| match object {
+            Object::Reference(id) => doc.get_object(*id).ok(),
+            Object::Dictionary(dict) => {
+                // AcroForm dictionaries are usually indirect but direct dictionaries are legal.
+                // A local clone is used below to keep the field walker borrowing only the document.
+                let _ = dict;
+                None
+            }
+            _ => None,
+        })
+        .and_then(|object| object.as_dict().ok())
     {
-        Some(Object::Dictionary(d)) => d,
-        _ => return Vec::new(),
+        Some(acro_form) => acro_form,
+        None => return Vec::new(),
     };
 
-    let fields_arr = match acro_form.get(b"Fields").ok() {
-        Some(Object::Array(a)) => a,
-        Some(Object::Reference(r)) => match doc.get_object(*r).ok() {
-            Some(Object::Array(a)) => a,
-            _ => return Vec::new(),
+    let fields = match acro_form.get(b"Fields").ok() {
+        Some(Object::Array(fields)) => fields.clone(),
+        Some(Object::Reference(id)) => match doc.get_object(*id).and_then(|object| object.as_array()) {
+            Ok(fields) => fields.clone(),
+            Err(_) => return Vec::new(),
         },
         _ => return Vec::new(),
     };
 
-    let mut out = Vec::new();
+    let inherited = InheritedFieldAttributes::default();
+    let mut visited = std::collections::HashSet::new();
+    let mut output = Vec::new();
 
-    for field_ref in fields_arr {
-        let obj_id = match field_ref.as_reference() {
-            Ok(id) => id,
-            Err(_) => continue,
-        };
-
-        let field_dict = match doc.get_object(obj_id).and_then(|o| o.as_dict()) {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-
-        let name = field_dict
-            .get(b"T")
-            .ok()
-            .and_then(to_string_lossy)
-            .unwrap_or_else(|| "UnnamedField".to_string());
-
-        let ft = field_dict.get(b"FT").ok().and_then(|o| o.as_name().ok());
-        let kind = match ft {
-            Some(b"Tx") => FieldKind::Text,
-            Some(b"Btn") => {
-                // Ff flag bit 16 = radio, otherwise checkbox
-                let ff = field_dict.get(b"Ff").ok().and_then(to_i64).unwrap_or(0);
-                if (ff & (1 << 15)) != 0 {
-                    FieldKind::Radio
-                } else {
-                    FieldKind::Checkbox
-                }
-            }
-            Some(b"Ch") => FieldKind::Choice,
-            _ => FieldKind::Unknown,
-        };
-
-        let value = field_dict.get(b"V").ok().and_then(to_string_lossy);
-        let default_value = field_dict.get(b"DV").ok().and_then(to_string_lossy);
-
-        let read_only = field_dict
-            .get(b"Ff")
-            .ok()
-            .and_then(to_i64)
-            .map(|ff| (ff & 1) != 0)
-            .unwrap_or(false);
-
-        let mut options = Vec::new();
-        if let Ok(Object::Array(opt_arr)) = field_dict.get(b"Opt") {
-            for o in opt_arr {
-                if let Some(s) = to_string_lossy(o) {
-                    options.push(s);
-                }
-            }
+    for field in fields {
+        if let Ok(field_id) = field.as_reference() {
+            collect_fields_recursive(
+                doc,
+                *field_id,
+                "",
+                &inherited,
+                &mut visited,
+                &mut output,
+            );
         }
-
-        out.push(FormField {
-            name,
-            kind,
-            value,
-            default_value,
-            read_only,
-            options,
-            object_id: obj_id,
-        });
     }
 
-    out
+    output
 }
 
 /// Updates the value of a named form field.
