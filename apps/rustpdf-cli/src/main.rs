@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 use rustpdf_engine::DocumentSession;
 use rustpdf_organize::SplitRule;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -16,6 +16,31 @@ use std::path::PathBuf;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+}
+
+fn ensure_output_differs_from_input(input: &Path, output: &Path) -> Result<()> {
+    if input == output {
+        anyhow::bail!(
+            "Refusing to overwrite the source PDF '{}'; choose a different output path",
+            input.display()
+        );
+    }
+
+    let input_path = fs::canonicalize(input)
+        .with_context(|| format!("Could not resolve source path '{}'", input.display()))?;
+
+    if output.exists() {
+        let output_path = fs::canonicalize(output)
+            .with_context(|| format!("Could not resolve output path '{}'", output.display()))?;
+        if input_path == output_path {
+            anyhow::bail!(
+                "Refusing to overwrite the source PDF '{}'; choose a different output path",
+                input.display()
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Subcommand, Debug)]
@@ -151,6 +176,7 @@ fn main() -> Result<()> {
             out,
             scale,
         } => {
+            ensure_output_differs_from_input(&input, &out)?;
             if page == 0 {
                 anyhow::bail!("Page number must be at least 1");
             }
@@ -212,6 +238,10 @@ fn main() -> Result<()> {
         }
 
         Commands::Combine { inputs, out } => {
+            for input in &inputs {
+                ensure_output_differs_from_input(input, &out)?;
+            }
+
             let mut buffers = Vec::with_capacity(inputs.len());
             for p in &inputs {
                 let b = fs::read(p).with_context(|| format!("Failed to read '{}'", p.display()))?;
@@ -228,6 +258,7 @@ fn main() -> Result<()> {
         }
 
         Commands::Extract { input, pages, out } => {
+            ensure_output_differs_from_input(&input, &out)?;
             let bytes = fs::read(&input)
                 .with_context(|| format!("Failed to read '{}'", input.display()))?;
             let total = lopdf::Document::load_mem(&bytes)
