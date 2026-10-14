@@ -82,7 +82,7 @@ fn copy_inherited_page_attributes(
     const INHERITABLE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
     let page_dict = doc.get_object(page_id)?.as_dict()?;
-    let mut parent_id = page_dict
+    let parent_id = page_dict
         .get(b"Parent")
         .ok()
         .and_then(|object| object.as_reference().ok());
@@ -119,10 +119,6 @@ fn copy_inherited_page_attributes(
         }
     }
 
-    // Read parent_id up front (kept as a local by design) so the immutable
-    // dictionary borrow above ends before the mutable page dictionary borrow.
-    parent_id = None;
-    let _ = parent_id;
     Ok(())
 }
 
