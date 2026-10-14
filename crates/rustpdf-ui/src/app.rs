@@ -20,6 +20,17 @@ use crate::viewer::{EditTool, StampKind, ViewMode, ViewerComponent, ViewerState}
 /// Performs Unicode-safe case-insensitive replacement by mapping folded characters
 /// back to original UTF-8 byte ranges. A match may not split a lowercase expansion
 /// of a single source character.
+fn paths_refer_to_same_file(first: &Path, second: &Path) -> bool {
+    if first == second {
+        return true;
+    }
+
+    match (std::fs::canonicalize(first), std::fs::canonicalize(second)) {
+        (Ok(first), Ok(second)) => first == second,
+        _ => false,
+    }
+}
+
 fn replace_case_insensitive(
     input: &str,
     query: &str,
@@ -1318,7 +1329,10 @@ impl App for RustPdfApp {
                                         .set_file_name(&default_name)
                                         .save_file()
                                     {
-                                        if source_path.as_deref() == Some(path.as_path()) {
+                                        if source_path
+                                            .as_deref()
+                                            .is_some_and(|source| paths_refer_to_same_file(source, &path))
+                                        {
                                             self.notify_error(
                                                 "Choose a different output file so the source PDF is not overwritten."
                                             );
@@ -1683,10 +1697,11 @@ impl App for RustPdfApp {
                                     (
                                         session.raw_bytes.as_ref().clone(),
                                         session.display_name.clone(),
+                                        session.file_path.clone(),
                                     )
                                 });
 
-                                if let Some((source_bytes, display_name)) = source {
+                                if let Some((source_bytes, display_name, source_path)) = source {
                                     if let Some(path) = rfd::FileDialog::new()
                                         .add_filter("Optimized PDF", &["pdf"])
                                         .set_file_name(format!(
@@ -1695,31 +1710,40 @@ impl App for RustPdfApp {
                                         ))
                                         .save_file()
                                     {
-                                        let result = (|| -> Result<
-                                            rustpdf_edit::CompressionResult,
-                                            String,
-                                        > {
-                                            let mut document = rustpdf_cos::CosDoc::load_mem(&source_bytes)
-                                                .map_err(|error| format!("Could not parse source PDF: {error}"))?;
-                                            let stats = rustpdf_edit::compress_document(document.inner_mut())
-                                                .map_err(|error| format!("Compression failed: {error}"))?;
-                                            let mut output = Vec::new();
-                                            document
-                                                .save_to(&mut output)
-                                                .map_err(|error| format!("Could not serialize compressed PDF: {error}"))?;
-                                            rustpdf_edit::save_atomic(&path, &output)
-                                                .map_err(|error| format!("Could not save compressed PDF: {error}"))?;
-                                            Ok(stats)
-                                        })();
+                                        if source_path
+                                            .as_deref()
+                                            .is_some_and(|source| paths_refer_to_same_file(source, &path))
+                                        {
+                                            self.notify_error(
+                                                "Choose a different output file so the source PDF is not overwritten."
+                                            );
+                                        } else {
+                                            let result = (|| -> Result<
+                                                rustpdf_edit::CompressionResult,
+                                                String,
+                                            > {
+                                                let mut document = rustpdf_cos::CosDoc::load_mem(&source_bytes)
+                                                    .map_err(|error| format!("Could not parse source PDF: {error}"))?;
+                                                let stats = rustpdf_edit::compress_document(document.inner_mut())
+                                                    .map_err(|error| format!("Compression failed: {error}"))?;
+                                                let mut output = Vec::new();
+                                                document
+                                                    .save_to(&mut output)
+                                                    .map_err(|error| format!("Could not serialize compressed PDF: {error}"))?;
+                                                rustpdf_edit::save_atomic(&path, &output)
+                                                    .map_err(|error| format!("Could not save compressed PDF: {error}"))?;
+                                                Ok(stats)
+                                            })();
 
-                                        match result {
-                                            Ok(stats) => self.notify_success(format!(
-                                                "Saved optimized PDF to {} ({} bytes saved, {:.1}%).",
-                                                path.display(),
-                                                stats.saved_bytes,
-                                                stats.saved_ratio() * 100.0
-                                            )),
-                                            Err(error) => self.notify_error(error),
+                                            match result {
+                                                Ok(stats) => self.notify_success(format!(
+                                                    "Saved optimized PDF to {} ({} bytes saved, {:.1}%).",
+                                                    path.display(),
+                                                    stats.saved_bytes,
+                                                    stats.saved_ratio() * 100.0
+                                                )),
+                                                Err(error) => self.notify_error(error),
+                                            }
                                         }
                                     }
                                 } else {
