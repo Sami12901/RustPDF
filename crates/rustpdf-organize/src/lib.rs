@@ -11,6 +11,12 @@ pub enum OrganizeError {
     IndexOutOfBounds(usize, usize),
     #[error("invalid rotation {0}: degrees must be a multiple of 90")]
     InvalidRotation(i32),
+    #[error("page order has a duplicate page index: {0}")]
+    DuplicatePageIndex(usize),
+    #[error("page order length mismatch: expected {expected} page indices, got {actual}")]
+    InvalidPageOrderLength { expected: usize, actual: usize },
+    #[error("invalid page range {start}..{end} for a document with {total} pages")]
+    InvalidPageRange { start: usize, end: usize, total: usize },
     #[error("lopdf error: {0}")]
     Lopdf(#[from] lopdf::Error),
     #[error("io error: {0}")]
@@ -25,55 +31,45 @@ pub fn insert_page_into_document(
     index: usize,
     page_id: ObjectId,
 ) -> Result<(), OrganizeError> {
-    // 1. Ensure Catalog exists
+    ensure_page_tree(doc)?;
+
+    let mut page_ids: Vec<ObjectId> = doc.page_iter().collect();
+    if index > page_ids.len() {
+        return Err(OrganizeError::IndexOutOfBounds(index, page_ids.len()));
+    }
+    page_ids.insert(index, page_id);
+    set_document_page_order(doc, &page_ids)
+}
+
+fn ensure_page_tree(doc: &mut LopdfDoc) -> Result<(ObjectId, ObjectId), OrganizeError> {
     let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
         root_ref
     } else {
-        let mut cat = Dictionary::new();
-        cat.set(b"Type", Object::Name(b"Catalog".to_vec()));
-        let id = doc.add_object(cat);
+        let mut catalog = Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        let id = doc.add_object(catalog);
         doc.trailer.set(b"Root", Object::Reference(id));
         id
     };
 
-    // 2. Ensure Pages root exists
     let pages_root_id = {
-        let catalog = doc.get_object(catalog_id)?.as_dict()?;
+        let catalog = doc.get_object(catalog_id)?.as_dict()?.clone();
         if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
             pages_ref
         } else {
-            let mut pages_dict = Dictionary::new();
-            pages_dict.set(b"Type", Object::Name(b"Pages".to_vec()));
-            pages_dict.set(b"Count", Object::Integer(0));
-            pages_dict.set(b"Kids", Object::Array(Vec::new()));
-            let p_id = doc.add_object(pages_dict);
-            let cat_mut = doc.get_object_mut(catalog_id)?.as_dict_mut()?;
-            cat_mut.set(b"Pages", Object::Reference(p_id));
-            p_id
+            let mut pages = Dictionary::new();
+            pages.set(b"Type", Object::Name(b"Pages".to_vec()));
+            pages.set(b"Count", Object::Integer(0));
+            pages.set(b"Kids", Object::Array(Vec::new()));
+            let id = doc.add_object(pages);
+            doc.get_object_mut(catalog_id)?
+                .as_dict_mut()?
+                .set(b"Pages", Object::Reference(id));
+            id
         }
     };
 
-    // Set page's Parent to pages_root_id
-    if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
-        page_dict.set(b"Parent", Object::Reference(pages_root_id));
-    }
-
-    // Insert into Pages dictionary Kids array
-    let pages_dict = doc.get_object_mut(pages_root_id)?.as_dict_mut()?;
-    let kids = match pages_dict.get_mut(b"Kids") {
-        Ok(Object::Array(ref mut arr)) => arr,
-        _ => {
-            pages_dict.set(b"Kids", Object::Array(Vec::new()));
-            pages_dict.get_mut(b"Kids")?.as_array_mut()?
-        }
-    };
-
-    let insert_pos = index.min(kids.len());
-    kids.insert(insert_pos, Object::Reference(page_id));
-    let count = kids.len() as i64;
-    pages_dict.set(b"Count", Object::Integer(count));
-
-    Ok(())
+    Ok((catalog_id, pages_root_id))
 }
 
 /// Rotates selected pages by degrees (clockwise positive, counter-clockwise negative; multiple of 90).
@@ -119,13 +115,22 @@ pub fn delete_pages(doc: &mut LopdfDoc, pages: &[usize]) -> Result<(), OrganizeE
     let current_pages = doc.get_pages();
     let total = current_pages.len();
 
-    if pages.len() >= total {
+    let mut page_nums = Vec::with_capacity(pages.len());
+    for &idx in pages {
+        if idx >= total {
+            return Err(OrganizeError::IndexOutOfBounds(idx, total));
+        }
+        page_nums.push((idx + 1) as u32);
+    }
+    page_nums.sort_unstable();
+    page_nums.dedup();
+
+    if page_nums.len() >= total {
         return Err(OrganizeError::CannotRemoveAllPages);
     }
-
-    // Convert 0-indexed pages to 1-indexed page numbers
-    let mut page_nums: Vec<u32> = pages.iter().map(|&idx| (idx + 1) as u32).collect();
-    page_nums.sort_unstable();
+    if page_nums.is_empty() {
+        return Ok(());
+    }
 
     doc.delete_pages(&page_nums);
     Ok(())
@@ -209,13 +214,20 @@ pub fn reorder_pages(doc: &mut LopdfDoc, new_order: &[usize]) -> Result<(), Orga
     let pages: Vec<ObjectId> = doc.page_iter().collect();
     let total = pages.len();
     if new_order.len() != total {
-        return Err(OrganizeError::IndexOutOfBounds(new_order.len(), total));
+        return Err(OrganizeError::InvalidPageOrderLength {
+            expected: total,
+            actual: new_order.len(),
+        });
     }
 
+    let mut seen = std::collections::HashSet::with_capacity(total);
     let mut reordered = Vec::with_capacity(total);
     for &idx in new_order {
         if idx >= total {
             return Err(OrganizeError::IndexOutOfBounds(idx, total));
+        }
+        if !seen.insert(idx) {
+            return Err(OrganizeError::DuplicatePageIndex(idx));
         }
         reordered.push(pages[idx]);
     }
@@ -223,28 +235,65 @@ pub fn reorder_pages(doc: &mut LopdfDoc, new_order: &[usize]) -> Result<(), Orga
     set_document_page_order(doc, &reordered)
 }
 
-fn set_document_page_order(doc: &mut LopdfDoc, page_ids: &[ObjectId]) -> Result<(), OrganizeError> {
-    let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
-        root_ref
-    } else {
-        return Err(OrganizeError::CombineFailed("Missing catalog".to_string()));
-    };
+/// Materializes inherited page attributes before flattening the page tree.
+fn materialize_inherited_page_attributes(
+    doc: &mut LopdfDoc,
+    page_id: ObjectId,
+    pages_root_id: ObjectId,
+) -> Result<(), OrganizeError> {
+    const INHERITABLE: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 
-    let pages_root_id = {
-        let catalog = doc.get_object(catalog_id)?.as_dict()?;
-        if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
-            pages_ref
-        } else {
-            return Err(OrganizeError::CombineFailed(
-                "Missing pages root".to_string(),
-            ));
+    let page_snapshot = doc.get_object(page_id)?.as_dict()?.clone();
+    let mut inherited: Vec<(Vec<u8>, Object)> = Vec::new();
+
+    for key in INHERITABLE {
+        if page_snapshot.get(key).is_ok() {
+            continue;
         }
-    };
 
+        let mut parent_id = page_snapshot
+            .get(b"Parent")
+            .ok()
+            .and_then(|obj| obj.as_reference().ok())
+            .copied();
+
+        while let Some(id) = parent_id {
+            let parent = match doc.get_object(id).and_then(Object::as_dict) {
+                Ok(dict) => dict,
+                Err(_) => break,
+            };
+
+            if let Ok(value) = parent.get(key) {
+                inherited.push((key.to_vec(), value.clone()));
+                break;
+            }
+
+            parent_id = parent
+                .get(b"Parent")
+                .ok()
+                .and_then(|obj| obj.as_reference().ok())
+                .copied();
+        }
+    }
+
+    let page = doc.get_object_mut(page_id)?.as_dict_mut()?;
+    for (key, value) in inherited {
+        page.set(key, value);
+    }
+    page.set(b"Parent", Object::Reference(pages_root_id));
+    Ok(())
+}
+
+fn set_document_page_order(
+    doc: &mut LopdfDoc,
+    page_ids: &[ObjectId],
+) -> Result<(), OrganizeError> {
+    let (_, pages_root_id) = ensure_page_tree(doc)?;
+
+    // Pages may inherit MediaBox, CropBox, Resources, and Rotate from intermediate
+    // /Pages nodes. Preserve those values before rebuilding a flat, ordered tree.
     for &page_id in page_ids {
-        if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
-            page_dict.set(b"Parent", Object::Reference(pages_root_id));
-        }
+        materialize_inherited_page_attributes(doc, page_id, pages_root_id)?;
     }
 
     let pages_dict = doc.get_object_mut(pages_root_id)?.as_dict_mut()?;
@@ -321,7 +370,18 @@ pub fn split_document(doc_bytes: &[u8], rule: SplitRule) -> Result<Vec<Vec<u8>>,
             }
             r
         }
-        SplitRule::Ranges(r) => r,
+        SplitRule::Ranges(ranges) => {
+            for range in &ranges {
+                if range.start >= range.end || range.end > total_pages {
+                    return Err(OrganizeError::InvalidPageRange {
+                        start: range.start,
+                        end: range.end,
+                        total: total_pages,
+                    });
+                }
+            }
+            ranges
+        },
     };
 
     let mut outputs = Vec::with_capacity(ranges.len());
