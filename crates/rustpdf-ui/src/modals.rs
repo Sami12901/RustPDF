@@ -592,6 +592,7 @@ impl ModalsComponent {
             if let Some(ref mut s) = session {
                 let mut is_open = true;
                 let mut close_dialog = false;
+                let mut protection_notice: Option<String> = None;
                 Window::new("Protect Document with Password")
                     .open(&mut is_open)
                     .resizable(false)
@@ -633,19 +634,26 @@ impl ModalsComponent {
                                     allow_annotate: state.protect_allow_annotate,
                                     ..Default::default()
                                 };
-                                let _ = s.protect_document(
+                                match s.protect_document(
                                     &state.protect_user_pass,
                                     &state.protect_owner_pass,
                                     perms,
-                                );
-                                close_dialog = true;
+                                ) {
+                                    Ok(()) => close_dialog = true,
+                                    Err(error) => protection_notice = Some(error.to_string()),
+                                }
                             }
 
                             if ui.button("Remove Protection").clicked() {
-                                let _ = s.remove_protection();
-                                close_dialog = true;
+                                match s.remove_protection() {
+                                    Ok(()) => close_dialog = true,
+                                    Err(error) => protection_notice = Some(error.to_string()),
+                                }
                             }
                         });
+                        if let Some(message) = protection_notice.as_deref() {
+                            ui.colored_label(Color32::RED, message);
+                        }
                     });
                 state.show_protect = is_open && !close_dialog;
             }
