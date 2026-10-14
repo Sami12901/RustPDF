@@ -256,8 +256,7 @@ fn materialize_inherited_page_attributes(
         let mut parent_id = page_snapshot
             .get(b"Parent")
             .ok()
-            .and_then(|obj| obj.as_reference().ok())
-            .copied();
+            .and_then(|obj| obj.as_reference().ok());
 
         while let Some(id) = parent_id {
             let parent = match doc.get_object(id).and_then(Object::as_dict) {
@@ -273,8 +272,7 @@ fn materialize_inherited_page_attributes(
             parent_id = parent
                 .get(b"Parent")
                 .ok()
-                .and_then(|obj| obj.as_reference().ok())
-                .copied();
+                .and_then(|obj| obj.as_reference().ok());
         }
     }
 
@@ -560,13 +558,13 @@ mod tests {
         insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
         let pages: Vec<ObjectId> = doc.page_iter().collect();
 
-        let catalog_id = *doc
+        let catalog_id = doc
             .trailer
             .get(b"Root")
             .unwrap()
             .as_reference()
             .unwrap();
-        let root_pages_id = *doc
+        let root_pages_id = doc
             .get_object(catalog_id)
             .unwrap()
             .as_dict()
@@ -631,7 +629,7 @@ mod tests {
             );
             assert_eq!(
                 page.get(b"Parent").unwrap().as_reference().unwrap(),
-                &root_pages_id
+                root_pages_id
             );
         }
 
