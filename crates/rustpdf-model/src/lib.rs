@@ -576,13 +576,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_empty_doc_model() {
+    fn rejects_pdf_without_catalog() {
+        let bytes =
+            rustpdf_export::create_blank_pdf(1, 612.0, 792.0, "Missing Catalog").unwrap();
+        let mut raw = LopdfDoc::load_mem(&bytes).unwrap();
+        raw.trailer.remove(b"Root");
+        let mut malformed = Vec::new();
+        raw.save_to(&mut malformed).unwrap();
+
+        let cos = CosDoc::load_mem(&malformed).unwrap();
+        assert!(matches!(
+            DocumentModel::from_cos(&cos, malformed.len()),
+            Err(ModelError::MissingCatalog)
+        ));
+    }
+
+    #[test]
+    fn test_empty_doc_model_rejects_invalid_document_state() {
         let cos = CosDoc::new();
-        let model = DocumentModel::from_cos(&cos, 1024).unwrap();
-        assert_eq!(model.metadata.pdf_version, "1.7");
-        assert_eq!(model.pages.len(), 0);
-        assert_eq!(model.outlines.len(), 0);
-        assert_eq!(model.layers.len(), 0);
-        assert_eq!(model.attachments.len(), 0);
+        assert!(matches!(
+            DocumentModel::from_cos(&cos, 1024),
+            Err(ModelError::MissingCatalog)
+        ));
     }
 }
