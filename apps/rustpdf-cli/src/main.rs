@@ -128,12 +128,18 @@ fn main() -> Result<()> {
                 (0..count).collect()
             };
 
+            let page_texts = rustpdf_export::extract_document_text(session.cos_doc.inner());
+
             for idx in page_indices {
                 if page.is_none() && idx > 0 {
-                    println!("\n--- Page {} ---\n", idx + 1);
+                    println!("\\n--- Page {} ---\\n", idx + 1);
                 }
                 if let Some(p) = session.model.pages.get(idx) {
                     println!("[Page {} ({} x {} pt)]", idx + 1, p.width, p.height);
+                }
+
+                if let Some(text) = page_texts.get(idx) {
+                    println!("{text}");
                 }
             }
         }
