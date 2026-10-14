@@ -101,6 +101,21 @@ fn resolved_dict<'a>(
     }
 }
 
+fn normal_appearance_states(
+    doc: &LopdfDoc,
+    field_id: ObjectId,
+) -> Option<Vec<Vec<u8>>> {
+    let field = doc.get_object(field_id).ok()?.as_dict().ok()?;
+    let ap = resolved_dict(doc, field.get(b"AP").ok()?)?;
+    let normal = resolved_dict(doc, ap.get(b"N").ok()?)?;
+    Some(
+        normal
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect(),
+    )
+}
+
 fn collect_button_states(
     doc: &LopdfDoc,
     field_id: ObjectId,
@@ -113,12 +128,10 @@ fn collect_button_states(
     let Ok(field) = doc.get_object(field_id).and_then(|object| object.as_dict()) else {
         return;
     };
-    if let Some(ap) = field.get(b"AP").ok().and_then(|object| resolved_dict(doc, object)) {
-        if let Some(normal) = ap.get(b"N").ok().and_then(|object| resolved_dict(doc, object)) {
-            for (name, _) in normal.iter() {
-                if name.as_slice() != b"Off" && !states.iter().any(|state| state == name) {
-                    states.push(name.clone());
-                }
+    if let Some(local_states) = normal_appearance_states(doc, field_id) {
+        for name in local_states {
+            if name.as_slice() != b"Off" && !states.iter().any(|state| state == &name) {
+                states.push(name);
             }
         }
     }
@@ -178,19 +191,15 @@ fn set_widget_appearance_state(
     if !visited.insert(field_id) {
         return Ok(());
     }
-    let (has_normal_appearance, children, states) = {
+    let (local_states, children) = {
         let field = doc.get_object(field_id)?.as_dict()?;
-        let has_appearance = field
-            .get(b"AP")
-            .ok()
-            .and_then(|object| resolved_dict(doc, object))
-            .and_then(|ap| ap.get(b"N").ok().and_then(|object| resolved_dict(doc, object)))
-            .is_some();
-        (has_appearance, all_child_ids(doc, field), button_states_for_field(doc, field_id))
+        (normal_appearance_states(doc, field_id), all_child_ids(doc, field))
     };
 
-    if has_normal_appearance {
-        let state = if selected_state == b"Off" || states.iter().any(|value| value == selected_state) {
+    if let Some(states) = local_states {
+        let state = if selected_state == b"Off"
+            || states.iter().any(|value| value.as_slice() == selected_state)
+        {
             selected_state
         } else {
             b"Off"
