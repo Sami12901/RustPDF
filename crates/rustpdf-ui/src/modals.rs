@@ -255,7 +255,9 @@ impl ModalsComponent {
                                     false,
                                 ),
                                 Err(error) => ModalAction::Notification(
-                                    format!("Default theme applied but could not be saved: {error}"),
+                                    format!(
+                                        "Default theme applied but could not be saved: {error}"
+                                    ),
                                     true,
                                 ),
                             });
@@ -971,7 +973,8 @@ impl ModalsComponent {
                                     Ok(_) => {
                                         state.new_annot_text.clear();
                                         action = Some(ModalAction::Notification(
-                                            "Comment added. Save the PDF to persist it.".to_string(),
+                                            "Comment added. Save the PDF to persist it."
+                                                .to_string(),
                                             false,
                                         ));
                                     }
