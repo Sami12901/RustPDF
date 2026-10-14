@@ -100,8 +100,7 @@ impl DocumentSession {
 
         match candidate {
             Ok((new_bytes, candidate_doc, candidate_model)) => {
-                self.history
-                    .push(description, old_bytes, new_bytes.clone());
+                self.history.push(description, old_bytes, new_bytes.clone());
                 self.cos_doc = candidate_doc;
                 self.raw_bytes = Arc::new(new_bytes);
                 self.model = candidate_model;
@@ -558,8 +557,7 @@ mod tests {
 
     #[test]
     fn failed_edit_commit_restores_last_valid_document_state() {
-        let bytes =
-            rustpdf_export::create_blank_pdf(2, 612.0, 792.0, "Rollback Test").unwrap();
+        let bytes = rustpdf_export::create_blank_pdf(2, 612.0, 792.0, "Rollback Test").unwrap();
         let mut session = DocumentSession::open_mem(bytes, None).unwrap();
         let old_bytes = session.raw_bytes.as_ref().clone();
 
@@ -569,7 +567,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(EngineError::Model(rustpdf_model::ModelError::MissingCatalog))
+            Err(EngineError::Model(
+                rustpdf_model::ModelError::MissingCatalog
+            ))
         ));
         assert_eq!(session.raw_bytes.as_ref(), &old_bytes);
         assert_eq!(session.page_count(), 2);
