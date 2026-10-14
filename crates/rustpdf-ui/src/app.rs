@@ -50,6 +50,10 @@ pub struct RustPdfApp {
 
     // Status / Operation Notifications: (message, is_error, timestamp)
     pub status_notification: Option<(String, bool, std::time::Instant)>,
+
+    // Pending close requests are held until the user saves, discards, or cancels.
+    pub pending_close_tab: Option<usize>,
+    pub show_exit_confirmation: bool,
 }
 
 impl RustPdfApp {
@@ -91,6 +95,8 @@ impl RustPdfApp {
             show_tools_panel: false,
             drawer_page: crate::tools_panel::DrawerPage::AllTools,
             status_notification: None,
+            pending_close_tab: None,
+            show_exit_confirmation: false,
         }
     }
 
@@ -203,11 +209,23 @@ impl RustPdfApp {
         }
     }
 
+    /// Requests a tab close without discarding unsaved edits implicitly.
     pub fn close_tab(&mut self, index: usize) {
+        if let Some(session) = self.sessions.get(index) {
+            if session.is_dirty {
+                self.pending_close_tab = Some(index);
+                return;
+            }
+        }
+        self.close_tab_now(index);
+    }
+
+    fn close_tab_now(&mut self, index: usize) {
         if index < self.sessions.len() {
             let removed = self.sessions.remove(index);
             self.viewer_state.invalidate_doc(removed.id);
             self.organizer_state.invalidate_doc(removed.id);
+            self.pending_close_tab = None;
             if self.sessions.is_empty() {
                 self.active_tab = None;
                 self.active_workspace = ActiveWorkspace::Home;
@@ -224,6 +242,127 @@ impl RustPdfApp {
                 self.active_tab = Some(new_idx);
                 let new_id = self.sessions[new_idx].id;
                 self.viewer_state.active_doc_id = Some(new_id);
+            }
+        }
+    }
+
+    fn save_all_dirty(&mut self) -> Result<(), String> {
+        for index in 0..self.sessions.len() {
+            if !self.sessions[index].is_dirty {
+                continue;
+            }
+
+            let existing_path = self.sessions[index].file_path.clone();
+            let target_path = existing_path.or_else(|| {
+                rfd::FileDialog::new()
+                    .add_filter("PDF", &["pdf"])
+                    .set_file_name(&self.sessions[index].display_name)
+                    .save_file()
+            });
+            let Some(path) = target_path else {
+                return Err("Save cancelled; RustPDF remains open.".to_string());
+            };
+
+            self.sessions[index]
+                .save_to(&path)
+                .map_err(|error| format!("Failed to save '{}': {error}", path.display()))?;
+        }
+        Ok(())
+    }
+
+    fn render_close_confirmations(&mut self, ctx: &Context) {
+        if let Some(index) = self.pending_close_tab {
+            if index >= self.sessions.len() {
+                self.pending_close_tab = None;
+            } else {
+                let name = self.sessions[index].display_name.clone();
+                let mut dialog_open = true;
+                let mut save_and_close = false;
+                let mut discard = false;
+                let mut cancel = false;
+
+                egui::Window::new("Unsaved Changes")
+                    .id(egui::Id::new("close_tab_unsaved_changes"))
+                    .open(&mut dialog_open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.label(format!("'{}' has unsaved changes.", name));
+                        ui.label("Save your edits before closing this tab?");
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("Save & Close").clicked() {
+                                save_and_close = true;
+                            }
+                            if ui.button("Discard Changes").clicked() {
+                                discard = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                cancel = true;
+                            }
+                        });
+                    });
+
+                if cancel || !dialog_open {
+                    self.pending_close_tab = None;
+                } else if discard {
+                    self.close_tab_now(index);
+                } else if save_and_close {
+                    self.active_tab = Some(index);
+                    self.active_workspace = ActiveWorkspace::Viewer;
+                    self.save_active_document();
+                    if self
+                        .sessions
+                        .get(index)
+                        .is_some_and(|session| !session.is_dirty)
+                    {
+                        self.close_tab_now(index);
+                    }
+                }
+            }
+        }
+
+        if self.show_exit_confirmation {
+            let mut dialog_open = true;
+            let mut save_and_exit = false;
+            let mut discard_and_exit = false;
+            let mut cancel = false;
+
+            egui::Window::new("Exit RustPDF?")
+                .id(egui::Id::new("exit_unsaved_changes"))
+                .open(&mut dialog_open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("One or more documents have unsaved changes.");
+                    ui.label("Save all changes before exiting?");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Save All & Exit").clicked() {
+                            save_and_exit = true;
+                        }
+                        if ui.button("Discard & Exit").clicked() {
+                            discard_and_exit = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+
+            if cancel || !dialog_open {
+                self.show_exit_confirmation = false;
+            } else if discard_and_exit {
+                self.show_exit_confirmation = false;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            } else if save_and_exit {
+                match self.save_all_dirty() {
+                    Ok(()) => {
+                        self.show_exit_confirmation = false;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    Err(error) => self.notify_error(error),
+                }
             }
         }
     }
@@ -391,6 +530,15 @@ impl RustPdfApp {
 impl App for RustPdfApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
+        // Intercept the native window close when any document is dirty.
+        if ctx.input(|input| input.viewport().close_requested())
+            && self.sessions.iter().any(|session| session.is_dirty)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.show_exit_confirmation = true;
+        }
+
         // Re-resolve System mode every frame so OS theme changes are reflected live.
         self.theme.apply_to_egui(&ctx);
         self.handle_shortcuts(&ctx);
@@ -468,7 +616,11 @@ impl App for RustPdfApp {
                     }
 
                     if ui.button("Exit").clicked() {
-                        std::process::exit(0);
+                        if self.sessions.iter().any(|session| session.is_dirty) {
+                            self.show_exit_confirmation = true;
+                        } else {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
                     }
                 });
 
@@ -1654,5 +1806,7 @@ impl App for RustPdfApp {
                 }
             }
         }
+
+        self.render_close_confirmations(&ctx);
     }
 }
