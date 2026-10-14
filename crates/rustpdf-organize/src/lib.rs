@@ -29,18 +29,18 @@ pub fn insert_page_into_document(
     index: usize,
     page_id: ObjectId,
 ) -> Result<(), OrganizeError> {
-    // 1. Ensure Catalog exists
-    let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
+    let catalog_id = if let Ok(root_ref) =
+        doc.trailer.get(b"Root").and_then(Object::as_reference)
+    {
         root_ref
     } else {
-        let mut cat = Dictionary::new();
-        cat.set(b"Type", Object::Name(b"Catalog".to_vec()));
-        let id = doc.add_object(cat);
+        let mut catalog = Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        let id = doc.add_object(catalog);
         doc.trailer.set(b"Root", Object::Reference(id));
         id
     };
 
-    // 2. Ensure Pages root exists
     let pages_root_id = {
         let catalog = doc.get_object(catalog_id)?.as_dict()?;
         if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
@@ -50,33 +50,79 @@ pub fn insert_page_into_document(
             pages_dict.set(b"Type", Object::Name(b"Pages".to_vec()));
             pages_dict.set(b"Count", Object::Integer(0));
             pages_dict.set(b"Kids", Object::Array(Vec::new()));
-            let p_id = doc.add_object(pages_dict);
-            let cat_mut = doc.get_object_mut(catalog_id)?.as_dict_mut()?;
-            cat_mut.set(b"Pages", Object::Reference(p_id));
-            p_id
+            let pages_id = doc.add_object(pages_dict);
+            doc.get_object_mut(catalog_id)?
+                .as_dict_mut()?
+                .set(b"Pages", Object::Reference(pages_id));
+            pages_id
         }
     };
 
-    // Set page's Parent to pages_root_id
-    if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
-        page_dict.set(b"Parent", Object::Reference(pages_root_id));
+    let mut page_ids: Vec<ObjectId> = doc.page_iter().collect();
+    if index > page_ids.len() {
+        return Err(OrganizeError::IndexOutOfBounds(index, page_ids.len()));
     }
 
-    // Insert into Pages dictionary Kids array
-    let pages_dict = doc.get_object_mut(pages_root_id)?.as_dict_mut()?;
-    let kids = match pages_dict.get_mut(b"Kids") {
-        Ok(Object::Array(ref mut arr)) => arr,
-        _ => {
-            pages_dict.set(b"Kids", Object::Array(Vec::new()));
-            pages_dict.get_mut(b"Kids")?.as_array_mut()?
+    // Preserve attributes inherited from nested /Pages nodes before flattening
+    // the page tree to a single ordered root Kids array.
+    for &existing_id in &page_ids {
+        copy_inherited_page_attributes(doc, existing_id)?;
+    }
+    copy_inherited_page_attributes(doc, page_id)?;
+
+    page_ids.insert(index, page_id);
+    set_document_page_order_at_root(doc, pages_root_id, &page_ids)
+}
+
+/// Copies inherited page attributes onto a leaf page before its /Parent changes.
+fn copy_inherited_page_attributes(
+    doc: &mut LopdfDoc,
+    page_id: ObjectId,
+) -> Result<(), OrganizeError> {
+    const INHERITABLE_KEYS: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
+
+    let page_dict = doc.get_object(page_id)?.as_dict()?;
+    let mut parent_id = page_dict
+        .get(b"Parent")
+        .ok()
+        .and_then(|object| object.as_reference().ok());
+    let mut inherited = Vec::new();
+
+    for key in INHERITABLE_KEYS {
+        if page_dict.get(key).is_ok() {
+            continue;
         }
-    };
 
-    let insert_pos = index.min(kids.len());
-    kids.insert(insert_pos, Object::Reference(page_id));
-    let count = kids.len() as i64;
-    pages_dict.set(b"Count", Object::Integer(count));
+        let mut cursor = parent_id;
+        let mut found = None;
+        while let Some(id) = cursor {
+            let parent = doc.get_object(id)?.as_dict()?;
+            if let Ok(value) = parent.get(key) {
+                found = Some(value.clone());
+                break;
+            }
+            cursor = parent
+                .get(b"Parent")
+                .ok()
+                .and_then(|object| object.as_reference().ok());
+        }
 
+        if let Some(value) = found {
+            inherited.push((key, value));
+        }
+    }
+
+    if !inherited.is_empty() {
+        let dict = doc.get_object_mut(page_id)?.as_dict_mut()?;
+        for (key, value) in inherited {
+            dict.set(key, value);
+        }
+    }
+
+    // Read parent_id up front (kept as a local by design) so the immutable
+    // dictionary borrow above ends before the mutable page dictionary borrow.
+    parent_id = None;
+    let _ = parent_id;
     Ok(())
 }
 
@@ -243,27 +289,33 @@ pub fn reorder_pages(doc: &mut LopdfDoc, new_order: &[usize]) -> Result<(), Orga
 }
 
 fn set_document_page_order(doc: &mut LopdfDoc, page_ids: &[ObjectId]) -> Result<(), OrganizeError> {
-    let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
-        root_ref
-    } else {
-        return Err(OrganizeError::CombineFailed("Missing catalog".to_string()));
-    };
-
-    let pages_root_id = {
-        let catalog = doc.get_object(catalog_id)?.as_dict()?;
-        if let Ok(pages_ref) = catalog.get(b"Pages").and_then(Object::as_reference) {
-            pages_ref
-        } else {
-            return Err(OrganizeError::CombineFailed(
-                "Missing pages root".to_string(),
-            ));
-        }
-    };
+    let catalog_id = doc
+        .trailer
+        .get(b"Root")
+        .and_then(Object::as_reference)
+        .map_err(|_| OrganizeError::CombineFailed("Missing catalog".to_string()))?;
+    let pages_root_id = doc
+        .get_object(catalog_id)?
+        .as_dict()?
+        .get(b"Pages")
+        .and_then(Object::as_reference)
+        .map_err(|_| OrganizeError::CombineFailed("Missing pages root".to_string()))?;
 
     for &page_id in page_ids {
-        if let Ok(page_dict) = doc.get_object_mut(page_id).and_then(Object::as_dict_mut) {
-            page_dict.set(b"Parent", Object::Reference(pages_root_id));
-        }
+        copy_inherited_page_attributes(doc, page_id)?;
+    }
+    set_document_page_order_at_root(doc, pages_root_id, page_ids)
+}
+
+fn set_document_page_order_at_root(
+    doc: &mut LopdfDoc,
+    pages_root_id: ObjectId,
+    page_ids: &[ObjectId],
+) -> Result<(), OrganizeError> {
+    for &page_id in page_ids {
+        doc.get_object_mut(page_id)?
+            .as_dict_mut()?
+            .set(b"Parent", Object::Reference(pages_root_id));
     }
 
     let pages_dict = doc.get_object_mut(pages_root_id)?.as_dict_mut()?;
