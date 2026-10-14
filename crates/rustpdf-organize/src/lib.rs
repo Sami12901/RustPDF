@@ -745,5 +745,4 @@ mod tests {
         let untouched = doc.get_object(pages[1]).unwrap().as_dict().unwrap();
         assert!(untouched.get(b"Rotate").is_err());
     }
-
 }
