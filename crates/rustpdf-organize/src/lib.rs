@@ -90,27 +90,42 @@ pub fn rotate_pages(
 
     let page_map = doc.get_pages();
     let total_pages = page_map.len();
+    let mut selected = Vec::with_capacity(pages.len());
+    let mut seen = std::collections::HashSet::with_capacity(pages.len());
 
+    // Validate the complete selection before mutating any page. That prevents a
+    // late invalid index from leaving earlier pages changed in the caller's doc.
     for &page_idx in pages {
+        if page_idx >= total_pages {
+            return Err(OrganizeError::IndexOutOfBounds(page_idx, total_pages));
+        }
+        if !seen.insert(page_idx) {
+            continue;
+        }
+
         let page_num = (page_idx + 1) as u32;
         let &obj_id = page_map
             .get(&page_num)
             .ok_or(OrganizeError::IndexOutOfBounds(page_idx, total_pages))?;
 
-        if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(obj_id) {
-            let current = dict
-                .get(b"Rotate")
-                .ok()
-                .and_then(|o| o.as_i64().ok())
-                .unwrap_or(0) as i32;
+        // Fail early if the page tree points at an invalid object.
+        doc.get_object(obj_id)?.as_dict()?;
+        selected.push(obj_id);
+    }
 
-            let mut new_rot = (current + degrees) % 360;
-            if new_rot < 0 {
-                new_rot += 360;
-            }
+    for obj_id in selected {
+        let dict = doc.get_object_mut(obj_id)?.as_dict_mut()?;
+        let current = dict
+            .get(b"Rotate")
+            .ok()
+            .and_then(|o| o.as_i64().ok())
+            .unwrap_or(0) as i32;
 
-            dict.set(b"Rotate", Object::Integer(new_rot as i64));
+        let mut new_rot = (current + degrees) % 360;
+        if new_rot < 0 {
+            new_rot += 360;
         }
+        dict.set(b"Rotate", Object::Integer(new_rot as i64));
     }
 
     Ok(())
@@ -692,4 +707,33 @@ mod tests {
             Err(OrganizeError::IndexOutOfBounds(2, 2))
         ));
     }
+
+    #[test]
+    fn test_rotate_validates_all_indices_before_mutating() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
+        let pages = doc.page_iter().collect::<Vec<_>>();
+
+        assert!(matches!(
+            rotate_pages(&mut doc, &[0, 99], 90),
+            Err(OrganizeError::IndexOutOfBounds(99, 2))
+        ));
+        for page_id in &pages {
+            assert!(doc
+                .get_object(*page_id)
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get(b"Rotate")
+                .is_err());
+        }
+
+        rotate_pages(&mut doc, &[0, 0], 90).unwrap();
+        let rotated = doc.get_object(pages[0]).unwrap().as_dict().unwrap();
+        assert_eq!(rotated.get(b"Rotate").unwrap().as_i64().unwrap(), 90);
+        let untouched = doc.get_object(pages[1]).unwrap().as_dict().unwrap();
+        assert!(untouched.get(b"Rotate").is_err());
+    }
+
 }
