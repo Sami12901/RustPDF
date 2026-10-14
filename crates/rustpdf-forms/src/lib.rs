@@ -230,23 +230,13 @@ pub fn get_form_fields(doc: &LopdfDoc) -> Vec<FormField> {
         None => return Vec::new(),
     };
 
-    let acro_form = match catalog
-        .get(b"AcroForm")
-        .ok()
-        .and_then(|object| match object {
-            Object::Reference(id) => doc.get_object(*id).ok(),
-            Object::Dictionary(dict) => {
-                // AcroForm dictionaries are usually indirect but direct dictionaries are legal.
-                // A local clone is used below to keep the field walker borrowing only the document.
-                let _ = dict;
-                None
-            }
-            _ => None,
-        })
-        .and_then(|object| object.as_dict().ok())
-    {
-        Some(acro_form) => acro_form,
-        None => return Vec::new(),
+    let acro_form = match catalog.get(b"AcroForm").ok() {
+        Some(Object::Reference(id)) => match doc.get_object(*id).and_then(|object| object.as_dict()) {
+            Ok(dict) => dict,
+            Err(_) => return Vec::new(),
+        },
+        Some(Object::Dictionary(dict)) => dict,
+        _ => return Vec::new(),
     };
 
     let fields = match acro_form.get(b"Fields").ok() {
