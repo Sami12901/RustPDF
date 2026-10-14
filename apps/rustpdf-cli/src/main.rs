@@ -132,7 +132,7 @@ fn main() -> Result<()> {
 
             for idx in page_indices {
                 if page.is_none() && idx > 0 {
-                    println!("\\n--- Page {} ---\\n", idx + 1);
+                    println!("\n--- Page {} ---\n", idx + 1);
                 }
                 if let Some(p) = session.model.pages.get(idx) {
                     println!("[Page {} ({} x {} pt)]", idx + 1, p.width, p.height);
