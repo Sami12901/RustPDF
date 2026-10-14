@@ -7,6 +7,7 @@ use egui::{
     TextEdit, Window,
 };
 use rustpdf_engine::DocumentSession;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 pub struct ModalsState {
@@ -15,6 +16,7 @@ pub struct ModalsState {
     pub show_properties: bool,
     pub show_combine: bool,
     pub show_split: bool,
+    pub show_extract: bool,
     pub show_command_palette: bool,
     pub show_about: bool,
     pub show_protect: bool,
@@ -27,6 +29,9 @@ pub struct ModalsState {
 
     // Split dialog state
     pub split_every_n: usize,
+
+    // Page extraction dialog state (1-based pages/ranges, e.g. 1,3,5-7)
+    pub extract_page_range: String,
     pub split_out_dir: PathBuf,
 
     // Command palette state
@@ -96,6 +101,7 @@ impl Default for ModalsState {
             show_properties: false,
             show_combine: false,
             show_split: false,
+            show_extract: false,
             show_command_palette: false,
             show_about: false,
             show_protect: false,
@@ -131,6 +137,7 @@ impl Default for ModalsState {
             combine_inputs: Vec::new(),
             split_every_n: 1,
             split_out_dir: PathBuf::from("."),
+            extract_page_range: String::from("1"),
             command_query: String::new(),
             protect_user_pass: String::new(),
             protect_owner_pass: String::new(),
@@ -147,9 +154,69 @@ impl Default for ModalsState {
 pub enum ModalAction {
     Combine(Vec<PathBuf>),
     Split(usize, PathBuf),
+    Extract(Vec<usize>, PathBuf),
     ExecuteCommand(String),
     DocumentModified,
     Notice { message: String, is_error: bool },
+}
+
+fn parse_page_selection(input: &str, total_pages: usize) -> Result<Vec<usize>, String> {
+    let input = input.trim();
+    if input.is_empty() {
+        return Err("Enter at least one page number or range.".to_string());
+    }
+
+    let mut selected = Vec::new();
+    let mut seen = HashSet::new();
+
+    for raw_token in input.split(',') {
+        let token = raw_token.trim();
+        if token.is_empty() {
+            return Err("Page selections cannot contain empty items.".to_string());
+        }
+
+        let (start, end) = if let Some((start, end)) = token.split_once('-') {
+            if end.contains('-') {
+                return Err(format!("Invalid page range '{token}'. Use a form such as 2-5."));
+            }
+            let start = start
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid page range start in '{token}'."))?;
+            let end = end
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid page range end in '{token}'."))?;
+            (start, end)
+        } else {
+            let page = token
+                .parse::<usize>()
+                .map_err(|_| format!("Invalid page number '{token}'."))?;
+            (page, page)
+        };
+
+        if start == 0 || end == 0 {
+            return Err("Page numbers start at 1, not 0.".to_string());
+        }
+        if start > end {
+            return Err(format!("Invalid page range '{token}': start must not exceed end."));
+        }
+        if end > total_pages {
+            return Err(format!(
+                "Page {end} is outside this document's page range (1-{total_pages})."
+            ));
+        }
+
+        for page in start..=end {
+            let index = page - 1;
+            if !seen.insert(index) {
+                return Err(format!("Page {page} is listed more than once."));
+            }
+            selected.push(index);
+        }
+    }
+
+    Ok(selected)
 }
 
 pub struct ModalsComponent;
@@ -388,6 +455,52 @@ impl ModalsComponent {
                         }
                     });
                 });
+        }
+
+        // 3. Extract selected pages to a separate PDF
+        if state.show_extract {
+            let mut close_extract = false;
+            Window::new("Extract PDF Pages")
+                .open(&mut state.show_extract)
+                .resizable(false)
+                .default_width(420.0)
+                .show(ctx, |ui| {
+                    if let Some(ref s) = session {
+                        ui.label(format!("Document: {} page(s)", s.page_count()));
+                        ui.label("Enter page numbers and ranges in output order.");
+                        ui.label("Example: 1,3,5-7 extracts pages 1, 3, 5, 6, and 7.");
+                        ui.add(
+                            TextEdit::singleline(&mut state.extract_page_range)
+                                .hint_text("1,3,5-7")
+                                .desired_width(ui.available_width()),
+                        );
+                        ui.add_space(12.0);
+                        if ui.button("Extract & Save As...").clicked() {
+                            match parse_page_selection(&state.extract_page_range, s.page_count()) {
+                                Ok(pages) => {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("PDF Documents", &["pdf"])
+                                        .save_file()
+                                    {
+                                        action = Some(ModalAction::Extract(pages, path));
+                                        close_extract = true;
+                                    }
+                                }
+                                Err(message) => {
+                                    action = Some(ModalAction::Notice {
+                                        message,
+                                        is_error: true,
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        ui.label("Open a PDF before extracting pages.");
+                    }
+                });
+            if close_extract {
+                state.show_extract = false;
+            }
         }
 
         // 3. Document Properties Modal
@@ -1501,5 +1614,29 @@ impl ModalsComponent {
         }
 
         action
+    }
+}
+
+
+#[cfg(test)]
+mod page_selection_tests {
+    use super::parse_page_selection;
+
+    #[test]
+    fn page_selection_preserves_requested_order_and_expands_ranges() {
+        assert_eq!(
+            parse_page_selection("3,1,5-7", 7).unwrap(),
+            vec![2, 0, 4, 5, 6]
+        );
+    }
+
+    #[test]
+    fn page_selection_rejects_invalid_and_duplicate_pages() {
+        assert!(parse_page_selection("", 4).is_err());
+        assert!(parse_page_selection("0", 4).is_err());
+        assert!(parse_page_selection("5", 4).is_err());
+        assert!(parse_page_selection("4-2", 4).is_err());
+        assert!(parse_page_selection("1,,2", 4).is_err());
+        assert!(parse_page_selection("1,1", 4).is_err());
     }
 }
