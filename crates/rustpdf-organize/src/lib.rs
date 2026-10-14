@@ -29,9 +29,7 @@ pub fn insert_page_into_document(
     index: usize,
     page_id: ObjectId,
 ) -> Result<(), OrganizeError> {
-    let catalog_id = if let Ok(root_ref) =
-        doc.trailer.get(b"Root").and_then(Object::as_reference)
-    {
+    let catalog_id = if let Ok(root_ref) = doc.trailer.get(b"Root").and_then(Object::as_reference) {
         root_ref
     } else {
         let mut catalog = Dictionary::new();
@@ -327,10 +325,7 @@ fn set_document_page_order_at_root(
 /// Pages are emitted in their original document order. Repeated selections are
 /// deduplicated; any out-of-range index rejects the operation without modifying
 /// the caller's original bytes.
-pub fn extract_pages(
-    doc_bytes: &[u8],
-    page_indices: &[usize],
-) -> Result<Vec<u8>, OrganizeError> {
+pub fn extract_pages(doc_bytes: &[u8], page_indices: &[usize]) -> Result<Vec<u8>, OrganizeError> {
     if page_indices.is_empty() {
         return Err(OrganizeError::EmptyPageSelection);
     }
@@ -388,11 +383,7 @@ mod extraction_tests {
             .values()
             .map(|id| {
                 let page = extracted_doc.get_object(*id).unwrap().as_dict().unwrap();
-                page.get(b"MediaBox")
-                    .unwrap()
-                    .as_array()
-                    .unwrap()[2]
-                    .as_float()
+                page.get(b"MediaBox").unwrap().as_array().unwrap()[2].as_float()
                     .unwrap()
             })
             .collect();
@@ -581,7 +572,10 @@ mod tests {
         let mut top_pages = Dictionary::new();
         top_pages.set(b"Type", Object::Name(b"Pages".to_vec()));
         top_pages.set(b"Count", Object::Integer(2));
-        top_pages.set(b"Kids", Object::Array(vec![Object::Reference(nested_pages_id)]));
+        top_pages.set(
+            b"Kids",
+            Object::Array(vec![Object::Reference(nested_pages_id)]),
+        );
         doc.set_object(top_pages_id, top_pages);
 
         let mut catalog = Dictionary::new();
