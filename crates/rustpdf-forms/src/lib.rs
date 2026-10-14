@@ -324,10 +324,10 @@ mod tests {
     #[test]
     fn test_set_value_refuses_read_only_fields_without_modifying_document() {
         let mut doc = make_text_form(true);
-        assert_eq!(
+        assert!(matches!(
             set_field_value(&mut doc, "Name", "New"),
-            Err(FormError::ReadOnlyField("Name".to_string()))
-        );
+            Err(FormError::ReadOnlyField(name)) if name == "Name"
+        ));
         let field = get_form_fields(&doc).pop().unwrap();
         assert_eq!(field.value.as_deref(), Some("Old"));
     }
@@ -343,10 +343,7 @@ mod tests {
         let catalog = doc.get_object(root_id).unwrap().as_dict().unwrap();
         let acro_id = catalog.get(b"AcroForm").unwrap().as_reference().unwrap();
         let acro = doc.get_object(acro_id).unwrap().as_dict().unwrap();
-        assert_eq!(
-            acro.get(b"NeedAppearances").unwrap().as_bool().unwrap(),
-            true
-        );
+        assert!(acro.get(b"NeedAppearances").unwrap().as_bool().unwrap());
 
         reset_field(&mut doc, "Name").unwrap();
         let field = get_form_fields(&doc).pop().unwrap();
@@ -367,10 +364,10 @@ mod tests {
         let mut doc = make_text_form(false);
         let result =
             import_form_data_json(&mut doc, r#"{"Name":"Changed","ZMissing":"No field"}"#);
-        assert_eq!(
+        assert!(matches!(
             result,
-            Err(FormError::FieldNotFound("ZMissing".to_string()))
-        );
+            Err(FormError::FieldNotFound(name)) if name == "ZMissing"
+        ));
 
         let field = get_form_fields(&doc).pop().unwrap();
         assert_eq!(field.value.as_deref(), Some("Old"));
