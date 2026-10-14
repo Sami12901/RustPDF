@@ -166,6 +166,26 @@ mod tests {
     }
 
     #[test]
+    fn test_save_atomic_replaces_existing_target() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let target = temp_dir.path().join("existing.pdf");
+
+        let mut original_doc = lopdf::Document::with_version("1.7");
+        let mut original_bytes = Vec::new();
+        original_doc.save_to(&mut original_bytes).unwrap();
+        save_atomic(&target, &original_bytes).unwrap();
+
+        let mut replacement_doc = lopdf::Document::with_version("1.4");
+        let mut replacement_bytes = Vec::new();
+        replacement_doc.save_to(&mut replacement_bytes).unwrap();
+        save_atomic(&target, &replacement_bytes).unwrap();
+
+        let written = fs::read(&target).unwrap();
+        assert_eq!(written, replacement_bytes);
+        assert!(lopdf::Document::load_mem(&written).is_ok());
+    }
+
+    #[test]
     fn test_save_atomic() {
         let temp_dir = tempfile::tempdir().unwrap();
         let target = temp_dir.path().join("test_doc.pdf");
