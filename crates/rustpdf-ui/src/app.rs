@@ -111,6 +111,8 @@ impl RustPdfApp {
     fn invalidate_active_document_views(&mut self) {
         if let Some(session) = self.active_session() {
             let doc_id = session.id;
+            let last_page = session.page_count().saturating_sub(1);
+            self.viewer_state.current_page = self.viewer_state.current_page.min(last_page);
             self.viewer_state.invalidate_doc(doc_id);
             self.organizer_state.invalidate_doc(doc_id);
         }
@@ -1830,12 +1832,13 @@ impl App for RustPdfApp {
                 }
 
                 if let Some(act) = action {
-                    let selected_pages: Vec<usize> = self
+                    let mut selected_pages: Vec<usize> = self
                         .organizer_state
                         .selected_pages
                         .iter()
                         .copied()
                         .collect();
+                    selected_pages.sort_unstable();
                     let fallback_page = self.viewer_state.current_page;
                     let operation_pages = if selected_pages.is_empty() {
                         vec![fallback_page]
@@ -1950,8 +1953,10 @@ impl App for RustPdfApp {
                         Some(Ok(()))
                     ) && matches!(act, OrganizerAction::Delete);
 
-                    if let Some(page) = selection_after {
-                        self.organizer_state.select_single(page);
+                    if operation_result.as_ref().is_some_and(Result::is_ok) {
+                        if let Some(page) = selection_after {
+                            self.organizer_state.select_single(page);
+                        }
                     }
                     if let Some(result) = operation_result {
                         self.report_document_operation(Some(result), operation_message);
