@@ -108,6 +108,45 @@ impl RustPdfApp {
         self.status_notification = Some((msg.into(), true, std::time::Instant::now()));
     }
 
+    fn invalidate_active_document_views(&mut self) {
+        if let Some(session) = self.active_session() {
+            let doc_id = session.id;
+            self.viewer_state.invalidate_doc(doc_id);
+            self.organizer_state.invalidate_doc(doc_id);
+        }
+    }
+
+    fn report_document_operation<E: std::fmt::Display>(
+        &mut self,
+        result: Option<Result<(), E>>,
+        success_message: impl Into<String>,
+    ) {
+        match result {
+            Some(Ok(())) => {
+                self.notify_success(success_message);
+                self.invalidate_active_document_views();
+            }
+            Some(Err(error)) => self.notify_error(format!("{error}")),
+            None => self.notify_error("Open a PDF before using this tool."),
+        }
+    }
+
+    fn report_history_operation<E: std::fmt::Display>(
+        &mut self,
+        result: Option<Result<bool, E>>,
+        action: &str,
+    ) {
+        match result {
+            Some(Ok(true)) => {
+                self.notify_success(format!("{action} completed."));
+                self.invalidate_active_document_views();
+            }
+            Some(Ok(false)) => self.notify_error(format!("Nothing to {action.to_lowercase()}.")),
+            Some(Err(error)) => self.notify_error(format!("{action} failed: {error}")),
+            None => self.notify_error("Open a PDF before using undo/redo."),
+        }
+    }
+
     pub fn save_active_document(&mut self) {
         let Some(idx) = self.active_tab else {
             return;
@@ -378,6 +417,11 @@ impl RustPdfApp {
     }
 
     fn handle_shortcuts(&mut self, ctx: &Context) {
+        // Avoid intercepting shortcuts intended for active text-editing controls.
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+
         // Ctrl+O: Open
         if ctx.input_mut(|i| {
             i.consume_key(Modifiers::COMMAND, Key::O) || i.consume_key(Modifiers::CTRL, Key::O)
@@ -423,18 +467,16 @@ impl RustPdfApp {
         if ctx.input_mut(|i| {
             i.consume_key(Modifiers::COMMAND, Key::Z) || i.consume_key(Modifiers::CTRL, Key::Z)
         }) {
-            if let Some(session) = self.active_session_mut() {
-                let _ = session.undo();
-            }
+            let result = self.active_session_mut().map(|session| session.undo());
+            self.report_history_operation(result, "Undo");
         }
 
         // Ctrl+Y: Redo
         if ctx.input_mut(|i| {
             i.consume_key(Modifiers::COMMAND, Key::Y) || i.consume_key(Modifiers::CTRL, Key::Y)
         }) {
-            if let Some(session) = self.active_session_mut() {
-                let _ = session.redo();
-            }
+            let result = self.active_session_mut().map(|session| session.redo());
+            self.report_history_operation(result, "Redo");
         }
 
         // Ctrl+= / Ctrl++: Zoom in
