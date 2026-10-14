@@ -1545,8 +1545,9 @@ impl App for RustPdfApp {
                                 self.modals_state.show_protect = true;
                             }
                             crate::tools_panel::ToolAction::RedactPdf => {
-                                // Priority 5: Distinguish Redaction from Cover-up
-                                log::warn!("Redaction is unsupported in v0.4.0. True sanitization is planned for a future release.");
+                                self.notify_error(
+                                    "True redaction is not implemented. RustPDF will not claim that a visual cover-up deletes hidden PDF content."
+                                );
                             }
                             crate::tools_panel::ToolAction::CompressPdf => {
                                 if let Some(s) = self.active_session_mut() {
@@ -1586,7 +1587,9 @@ impl App for RustPdfApp {
                                 self.notify_success("Stamp tool active: click anywhere on page to stamp");
                             }
                             crate::tools_panel::ToolAction::UseCertificate => {
-                                log::warn!("Digital certificate signing is planned for a future release.");
+                                self.notify_error(
+                                    "Certificate-backed digital signatures are planned but not implemented."
+                                );
                             }
                             crate::tools_panel::ToolAction::PrintProduction => {
                                 self.modals_state.show_properties = true;
@@ -1595,7 +1598,7 @@ impl App for RustPdfApp {
                                 self.modals_state.show_properties = true;
                             }
                             crate::tools_panel::ToolAction::CompareFiles => {
-                                log::warn!("File comparison is planned for a future release.");
+                                self.notify_error("PDF comparison is planned but not implemented.");
                             }
                             crate::tools_panel::ToolAction::GuidedActions => {
                                 self.active_workspace = ActiveWorkspace::Home;
@@ -1625,43 +1628,89 @@ impl App for RustPdfApp {
                                 self.modals_state.show_annotations_manager = true;
                             }
                             crate::tools_panel::ToolAction::ResetFormFields => {
-                                if let Some(s) = self.active_session_mut() {
-                                    let _ = s.reset_form_fields();
+                                match self
+                                    .active_session_mut()
+                                    .map(|session| session.reset_form_fields())
+                                {
+                                    Some(Ok(count)) => {
+                                        self.report_document_operation(
+                                            Some(Ok(())),
+                                            format!("Reset {count} form field(s)."),
+                                        );
+                                    }
+                                    Some(Err(error)) => {
+                                        self.notify_error(format!(
+                                            "Failed to reset form fields: {error}"
+                                        ));
+                                    }
+                                    None => self.notify_error(
+                                        "Open a PDF before resetting form fields."
+                                    ),
                                 }
                             }
                             crate::tools_panel::ToolAction::ExportFormData => {
-                                if let Some(s) = self.active_session_mut() {
-                                    if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("JSON", &["json"])
-                                        .save_file()
-                                    {
-                                        if let Ok(json) =
-                                            rustpdf_forms::export_form_data_json(s.cos_doc.inner())
-                                        {
-                                            let _ = std::fs::write(path, json);
-                                        }
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("JSON", &["json"])
+                                    .set_file_name("form-data.json")
+                                    .save_file()
+                                {
+                                    match self.active_session().map(|session| {
+                                        rustpdf_forms::export_form_data_json(session.cos_doc.inner())
+                                    }) {
+                                        Some(Ok(json)) => match std::fs::write(&path, json) {
+                                            Ok(()) => self.notify_success(format!(
+                                                "Exported form data: {}",
+                                                path.display()
+                                            )),
+                                            Err(error) => self.notify_error(format!(
+                                                "Failed to write form data: {error}"
+                                            )),
+                                        },
+                                        Some(Err(error)) => self.notify_error(format!(
+                                            "Failed to serialize form data: {error}"
+                                        )),
+                                        None => self.notify_error(
+                                            "Open a PDF before exporting form data."
+                                        ),
                                     }
                                 }
                             }
                             crate::tools_panel::ToolAction::RemoveProtection => {
-                                if let Some(s) = self.active_session_mut() {
-                                    let _ = s.remove_protection();
-                                }
+                                let result = self
+                                    .active_session_mut()
+                                    .map(|session| session.remove_protection());
+                                self.report_document_operation(
+                                    result,
+                                    "Document restrictions removed.",
+                                );
                             }
                             crate::tools_panel::ToolAction::OpenLayersDialog => {
                                 self.modals_state.show_layers_manager = true;
                             }
                             crate::tools_panel::ToolAction::AddAttachment => {
-                                if let Some(s) = self.active_session_mut() {
-                                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                        if let Ok(bytes) = std::fs::read(&path) {
-                                            let filename = path
-                                                .file_name()
-                                                .unwrap_or_default()
-                                                .to_string_lossy()
-                                                .to_string();
-                                            let _ = s.add_attachment(&filename, &bytes);
+                                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                    let filename = path
+                                        .file_name()
+                                        .unwrap_or_default()
+                                        .to_string_lossy()
+                                        .to_string();
+                                    match std::fs::read(&path) {
+                                        Ok(bytes) => {
+                                            let result = self
+                                                .active_session_mut()
+                                                .map(|session| {
+                                                    session
+                                                        .add_attachment(&filename, &bytes)
+                                                        .map(|_| ())
+                                                });
+                                            self.report_document_operation(
+                                                result,
+                                                format!("Attached '{filename}'. Save the PDF to persist it."),
+                                            );
                                         }
+                                        Err(error) => self.notify_error(format!(
+                                            "Failed to read attachment: {error}"
+                                        )),
                                     }
                                 }
                             }
