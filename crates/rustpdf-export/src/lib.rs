@@ -17,6 +17,8 @@ pub enum ExportError {
     Render(String),
     #[error("image error: {0}")]
     Image(String),
+    #[error("text extraction failed on page {page}: {message}")]
+    TextExtraction { page: u32, message: String },
 }
 
 /// Creates a blank PDF document with the specified number of pages, dimensions, and title.
@@ -103,22 +105,39 @@ pub fn export_plain_text(pages: &[PageText]) -> String {
     out
 }
 
-/// Extracts text page-by-page from an existing lopdf Document.
-pub fn extract_document_text(doc: &LopdfDoc) -> Vec<String> {
+/// Extracts text page-by-page and preserves extraction errors with page context.
+pub fn try_extract_document_text(doc: &LopdfDoc) -> Result<Vec<String>, ExportError> {
     let page_count = doc.get_pages().len();
     let mut texts = Vec::with_capacity(page_count);
     for idx in 0..page_count {
         let page_num = (idx + 1) as u32;
-        let text = doc.extract_text(&[page_num]).unwrap_or_default();
+        let text = doc
+            .extract_text(&[page_num])
+            .map_err(|error| ExportError::TextExtraction {
+                page: page_num,
+                message: error.to_string(),
+            })?;
         texts.push(text);
     }
-    texts
+    Ok(texts)
 }
 
-/// Combines all pages of a document into plain text separated by form-feed page breaks.
+/// Best-effort text extraction for callers that explicitly accept empty text on failure.
+/// UI and file-export workflows should use `try_extract_document_text` instead.
+pub fn extract_document_text(doc: &LopdfDoc) -> Vec<String> {
+    let page_count = doc.get_pages().len();
+    try_extract_document_text(doc).unwrap_or_else(|_| vec![String::new(); page_count])
+}
+
+/// Fallible text export. Returns an error instead of producing an incomplete file.
+pub fn try_export_plain_text_doc(doc: &LopdfDoc) -> Result<String, ExportError> {
+    let pages = try_extract_document_text(doc)?;
+    Ok(pages.join("\n\x0C\n"))
+}
+
+/// Best-effort compatibility wrapper. Prefer `try_export_plain_text_doc` for user-facing exports.
 pub fn export_plain_text_doc(doc: &LopdfDoc) -> String {
-    let pages = extract_document_text(doc);
-    pages.join("\n\x0C\n")
+    try_export_plain_text_doc(doc).unwrap_or_default()
 }
 
 /// Escapes special HTML characters.
@@ -137,8 +156,8 @@ fn escape_html(s: &str) -> String {
 }
 
 /// Exports document to clean, responsive HTML with styled page containers and layout.
-pub fn export_html_doc(doc: &LopdfDoc, title: &str) -> String {
-    let pages = extract_document_text(doc);
+pub fn try_export_html_doc(doc: &LopdfDoc, title: &str) -> Result<String, ExportError> {
+    let pages = try_extract_document_text(doc)?;
     let escaped_title = escape_html(title);
 
     let mut html = String::new();
@@ -174,7 +193,11 @@ pub fn export_html_doc(doc: &LopdfDoc, title: &str) -> String {
     }
 
     html.push_str("</div>\n</body>\n</html>");
-    html
+    Ok(html)
+}
+
+pub fn export_html_doc(doc: &LopdfDoc, title: &str) -> String {
+    try_export_html_doc(doc, title).unwrap_or_default()
 }
 
 /// Escapes special RTF characters.
@@ -195,8 +218,8 @@ fn escape_rtf(s: &str) -> String {
 }
 
 /// Exports document to standard Rich Text Format (RTF) compatible with Microsoft Word and WordPad.
-pub fn export_rtf_doc(doc: &LopdfDoc, title: &str) -> String {
-    let pages = extract_document_text(doc);
+pub fn try_export_rtf_doc(doc: &LopdfDoc, title: &str) -> Result<String, ExportError> {
+    let pages = try_extract_document_text(doc)?;
 
     let mut rtf = String::new();
     rtf.push_str("{\\rtf1\\ansi\\deff0\n");
@@ -225,17 +248,26 @@ pub fn export_rtf_doc(doc: &LopdfDoc, title: &str) -> String {
     }
 
     rtf.push_str("}\n");
-    rtf
+    Ok(rtf)
 }
 
-/// Exports document to Word-compatible document format (RTF stream).
+pub fn export_rtf_doc(doc: &LopdfDoc, title: &str) -> String {
+    try_export_rtf_doc(doc, title).unwrap_or_default()
+}
+
+/// Fallible Word-compatible document export (RTF stream).
+pub fn try_export_word_doc(doc: &LopdfDoc, title: &str) -> Result<String, ExportError> {
+    try_export_rtf_doc(doc, title)
+}
+
+/// Best-effort compatibility wrapper. Prefer `try_export_word_doc` for user-facing exports.
 pub fn export_word_doc(doc: &LopdfDoc, title: &str) -> String {
-    export_rtf_doc(doc, title)
+    try_export_word_doc(doc, title).unwrap_or_default()
 }
 
 /// Exports extracted text into a CSV spreadsheet format.
-pub fn export_csv_doc(doc: &LopdfDoc) -> String {
-    let pages = extract_document_text(doc);
+pub fn try_export_csv_doc(doc: &LopdfDoc) -> Result<String, ExportError> {
+    let pages = try_extract_document_text(doc)?;
     let mut csv = String::new();
     csv.push_str("Page,Line,Text\n");
 
@@ -253,7 +285,11 @@ pub fn export_csv_doc(doc: &LopdfDoc) -> String {
         }
     }
 
-    csv
+    Ok(csv)
+}
+
+pub fn export_csv_doc(doc: &LopdfDoc) -> String {
+    try_export_csv_doc(doc).unwrap_or_default()
 }
 
 /// Synchronously rasterizes a page from PDF bytes and encodes to PNG bytes.
