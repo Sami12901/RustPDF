@@ -947,13 +947,10 @@ impl App for RustPdfApp {
                                 }
                             }
                             crate::tools_panel::ToolAction::ExtractPages => {
-                                if let Some(s) = self.active_session_mut() {
-                                    if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("PDF", &["pdf"])
-                                        .save_file()
-                                    {
-                                        let _ = s.save_to(&path);
-                                    }
+                                if self.active_tab.is_some() {
+                                    self.modals_state.show_extract = true;
+                                } else {
+                                    self.notify_error("Open a PDF before extracting pages.");
                                 }
                             }
                             crate::tools_panel::ToolAction::EditTextAndImages => {
@@ -1653,6 +1650,29 @@ impl App for RustPdfApp {
                         Ok(count) => self.notify_success(format!(
                             "Split completed: {count} file(s) saved to '{}'.",
                             out_dir.display()
+                        )),
+                        Err(error) => self.notify_error(error),
+                    }
+                }
+                ModalAction::Extract(pages, path) => {
+                    let result = self
+                        .active_session()
+                        .ok_or_else(|| "Open a PDF before extracting pages.".to_string())
+                        .and_then(|session| {
+                            rustpdf_organize::extract_pages(&session.raw_bytes, &pages)
+                                .map_err(|error| format!("Failed to extract PDF pages: {error}"))
+                        })
+                        .and_then(|bytes| {
+                            rustpdf_edit::save_atomic(&path, &bytes).map_err(|error| {
+                                format!("Failed to save extracted PDF to '{}': {error}", path.display())
+                            })
+                        });
+
+                    match result {
+                        Ok(()) => self.notify_success(format!(
+                            "Extracted {} page(s) to '{}'.",
+                            pages.len(),
+                            path.display()
                         )),
                         Err(error) => self.notify_error(error),
                     }
