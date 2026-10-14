@@ -94,7 +94,7 @@ jobs:
           artifact = Path("${{ matrix.archive_name }}")
           digest = hashlib.sha256(artifact.read_bytes()).hexdigest().upper()
           Path(f"{artifact.name}.sha256").write_text(
-              f"{digest}  {artifact.name}\\n", encoding="ascii"
+              f"{digest}  {artifact.name}\n", encoding="ascii"
           )
 
       - name: Upload Artifact
