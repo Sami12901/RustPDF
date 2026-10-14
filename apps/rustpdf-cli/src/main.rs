@@ -128,8 +128,6 @@ fn main() -> Result<()> {
                 (0..count).collect()
             };
 
-            let page_texts = rustpdf_export::extract_document_text(session.cos_doc.inner());
-
             for idx in page_indices {
                 if page.is_none() && idx > 0 {
                     println!("\n--- Page {} ---\n", idx + 1);
@@ -138,9 +136,12 @@ fn main() -> Result<()> {
                     println!("[Page {} ({} x {} pt)]", idx + 1, p.width, p.height);
                 }
 
-                if let Some(text) = page_texts.get(idx) {
-                    println!("{text}");
-                }
+                let text = session
+                    .cos_doc
+                    .inner()
+                    .extract_text(&[(idx + 1) as u32])
+                    .with_context(|| format!("Failed to extract text from page {}", idx + 1))?;
+                println!("{text}");
             }
         }
 
