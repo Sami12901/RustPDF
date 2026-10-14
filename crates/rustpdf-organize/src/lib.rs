@@ -9,6 +9,8 @@ pub enum OrganizeError {
     CannotRemoveAllPages,
     #[error("page index {0} out of bounds (document has {1} pages)")]
     IndexOutOfBounds(usize, usize),
+    #[error("page index {0} appears more than once")]
+    DuplicatePageIndex(usize),
     #[error("invalid rotation {0}: degrees must be a multiple of 90")]
     InvalidRotation(i32),
     #[error("lopdf error: {0}")]
@@ -116,18 +118,29 @@ pub fn rotate_pages(
 
 /// Deletes specified pages from the document. Fails if all pages would be removed.
 pub fn delete_pages(doc: &mut LopdfDoc, pages: &[usize]) -> Result<(), OrganizeError> {
-    let current_pages = doc.get_pages();
-    let total = current_pages.len();
+    let total = doc.get_pages().len();
+    let mut unique_pages = std::collections::BTreeSet::new();
 
-    if pages.len() >= total {
+    for &page_idx in pages {
+        if page_idx >= total {
+            return Err(OrganizeError::IndexOutOfBounds(page_idx, total));
+        }
+        unique_pages.insert(page_idx);
+    }
+
+    if unique_pages.len() >= total {
         return Err(OrganizeError::CannotRemoveAllPages);
     }
 
-    // Convert 0-indexed pages to 1-indexed page numbers
-    let mut page_nums: Vec<u32> = pages.iter().map(|&idx| (idx + 1) as u32).collect();
-    page_nums.sort_unstable();
+    // lopdf expects 1-based page numbers. Deduplicate repeated UI selections.
+    let page_nums: Vec<u32> = unique_pages
+        .into_iter()
+        .map(|idx| (idx + 1) as u32)
+        .collect();
 
-    doc.delete_pages(&page_nums);
+    if !page_nums.is_empty() {
+        doc.delete_pages(&page_nums);
+    }
     Ok(())
 }
 
@@ -212,10 +225,14 @@ pub fn reorder_pages(doc: &mut LopdfDoc, new_order: &[usize]) -> Result<(), Orga
         return Err(OrganizeError::IndexOutOfBounds(new_order.len(), total));
     }
 
+    let mut seen = std::collections::HashSet::with_capacity(total);
     let mut reordered = Vec::with_capacity(total);
     for &idx in new_order {
         if idx >= total {
             return Err(OrganizeError::IndexOutOfBounds(idx, total));
+        }
+        if !seen.insert(idx) {
+            return Err(OrganizeError::DuplicatePageIndex(idx));
         }
         reordered.push(pages[idx]);
     }
@@ -372,6 +389,39 @@ mod tests {
 
         // Trying to delete last page must fail
         assert!(delete_pages(&mut doc, &[0]).is_err());
+    }
+
+    #[test]
+    fn test_delete_pages_validates_indices_and_deduplicates() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        for i in 0..3 {
+            insert_blank_page(&mut doc, i, 612.0, 792.0).unwrap();
+        }
+
+        delete_pages(&mut doc, &[1, 1]).unwrap();
+        assert_eq!(doc.get_pages().len(), 2);
+        assert!(matches!(
+            delete_pages(&mut doc, &[2]),
+            Err(OrganizeError::IndexOutOfBounds(2, 2))
+        ));
+        assert!(matches!(
+            delete_pages(&mut doc, &[0, 0, 2]),
+            Err(OrganizeError::IndexOutOfBounds(2, 2))
+        ));
+    }
+
+    #[test]
+    fn test_reorder_pages_rejects_duplicate_indices() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        for i in 0..3 {
+            insert_blank_page(&mut doc, i, 612.0, 792.0).unwrap();
+        }
+
+        assert!(matches!(
+            reorder_pages(&mut doc, &[0, 0, 2]),
+            Err(OrganizeError::DuplicatePageIndex(0))
+        ));
+        assert_eq!(doc.get_pages().len(), 3);
     }
 
     #[test]
