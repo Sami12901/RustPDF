@@ -1,6 +1,6 @@
 //! rustpdf-forms — Interactive PDF AcroForm field inspection, value editing, and resetting.
 
-use lopdf::{Document as LopdfDoc, Object, StringFormat};
+use lopdf::{Document as LopdfDoc, Object, ObjectId, StringFormat};
 use rustpdf_cos::helpers::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -15,6 +15,8 @@ pub enum FormError {
     FieldNotFound(String),
     #[error("field '{0}' is read-only")]
     ReadOnlyField(String),
+    #[error("'{value}' is not a valid value for button field '{field}'")]
+    InvalidButtonValue { field: String, value: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -46,7 +48,7 @@ struct InheritedFieldAttributes {
     options: Option<Object>,
 }
 
-fn field_children(doc: &LopdfDoc, field_dict: &lopdf::Dictionary) -> Vec<ObjectId> {
+fn all_child_ids(doc: &LopdfDoc, field_dict: &lopdf::Dictionary) -> Vec<ObjectId> {
     let kids = match field_dict.get(b"Kids").ok() {
         Some(Object::Array(kids)) => kids.clone(),
         Some(Object::Reference(id)) => doc
@@ -56,9 +58,14 @@ fn field_children(doc: &LopdfDoc, field_dict: &lopdf::Dictionary) -> Vec<ObjectI
             .unwrap_or_default(),
         _ => return Vec::new(),
     };
-
     kids.into_iter()
         .filter_map(|child| child.as_reference().ok().copied())
+        .collect()
+}
+
+fn field_children(doc: &LopdfDoc, field_dict: &lopdf::Dictionary) -> Vec<ObjectId> {
+    all_child_ids(doc, field_dict)
+        .into_iter()
         .filter(|child_id| {
             let Ok(child) = doc
                 .get_object(*child_id)
@@ -81,6 +88,122 @@ fn field_children(doc: &LopdfDoc, field_dict: &lopdf::Dictionary) -> Vec<ObjectI
             !(is_widget && !is_named && !has_own_type && !has_children)
         })
         .collect()
+}
+
+fn resolved_dict<'a>(
+    doc: &'a LopdfDoc,
+    object: &'a Object,
+) -> Option<&'a lopdf::Dictionary> {
+    match object {
+        Object::Dictionary(dict) => Some(dict),
+        Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok(),
+        _ => None,
+    }
+}
+
+fn collect_button_states(
+    doc: &LopdfDoc,
+    field_id: ObjectId,
+    visited: &mut std::collections::HashSet<ObjectId>,
+    states: &mut Vec<Vec<u8>>,
+) {
+    if !visited.insert(field_id) {
+        return;
+    }
+    let Ok(field) = doc.get_object(field_id).and_then(|object| object.as_dict()) else {
+        return;
+    };
+    if let Some(ap) = field.get(b"AP").ok().and_then(|object| resolved_dict(doc, object)) {
+        if let Some(normal) = ap.get(b"N").ok().and_then(|object| resolved_dict(doc, object)) {
+            for (name, _) in normal.iter() {
+                if name.as_slice() != b"Off" && !states.iter().any(|state| state == name) {
+                    states.push(name.clone());
+                }
+            }
+        }
+    }
+
+    for child_id in all_child_ids(doc, field) {
+        collect_button_states(doc, child_id, visited, states);
+    }
+}
+
+fn button_states_for_field(doc: &LopdfDoc, field_id: ObjectId) -> Vec<Vec<u8>> {
+    let mut states = Vec::new();
+    collect_button_states(
+        doc,
+        field_id,
+        &mut std::collections::HashSet::new(),
+        &mut states,
+    );
+    states
+}
+
+fn resolve_button_value(
+    doc: &LopdfDoc,
+    field: &FormField,
+    requested: &str,
+) -> Result<Vec<u8>, FormError> {
+    let trimmed = requested.trim();
+    let normalized = trimmed.to_ascii_lowercase();
+
+    if matches!(normalized.as_str(), "" | "off" | "false" | "no" | "0") {
+        return Ok(b"Off".to_vec());
+    }
+
+    let states = button_states_for_field(doc, field.object_id);
+    if let Some(state) = states.iter().find(|state| state.as_slice() == trimmed.as_bytes()) {
+        return Ok(state.clone());
+    }
+
+    if matches!(normalized.as_str(), "on" | "true" | "yes" | "1") {
+        return Ok(states
+            .first()
+            .cloned()
+            .unwrap_or_else(|| b"Yes".to_vec()));
+    }
+
+    Err(FormError::InvalidButtonValue {
+        field: field.name.clone(),
+        value: requested.to_string(),
+    })
+}
+
+fn set_widget_appearance_state(
+    doc: &mut LopdfDoc,
+    field_id: ObjectId,
+    selected_state: &[u8],
+    visited: &mut std::collections::HashSet<ObjectId>,
+) -> Result<(), FormError> {
+    if !visited.insert(field_id) {
+        return Ok(());
+    }
+    let (has_normal_appearance, children, states) = {
+        let field = doc.get_object(field_id)?.as_dict()?;
+        let has_appearance = field
+            .get(b"AP")
+            .ok()
+            .and_then(|object| resolved_dict(doc, object))
+            .and_then(|ap| ap.get(b"N").ok().and_then(|object| resolved_dict(doc, object)))
+            .is_some();
+        (has_appearance, all_child_ids(doc, field), button_states_for_field(doc, field_id))
+    };
+
+    if has_normal_appearance {
+        let state = if selected_state == b"Off" || states.iter().any(|value| value == selected_state) {
+            selected_state
+        } else {
+            b"Off"
+        };
+        doc.get_object_mut(field_id)?
+            .as_dict_mut()?
+            .set(b"AS", Object::Name(state.to_vec()));
+    }
+
+    for child_id in children {
+        set_widget_appearance_state(doc, child_id, selected_state, visited)?;
+    }
+    Ok(())
 }
 
 fn collect_fields_recursive(
@@ -258,27 +381,54 @@ pub fn get_form_fields(doc: &LopdfDoc) -> Vec<FormField> {
     output
 }
 
-/// Updates the value of a named form field.
+/// Updates a named AcroForm field transactionally.
 pub fn set_field_value(
     doc: &mut LopdfDoc,
     field_name: &str,
     new_val: &str,
 ) -> Result<(), FormError> {
-    let fields = get_form_fields(doc);
-    let target = fields
+    let mut candidate = doc.clone();
+    set_field_value_in_place(&mut candidate, field_name, new_val)?;
+    *doc = candidate;
+    Ok(())
+}
+
+fn set_field_value_in_place(
+    doc: &mut LopdfDoc,
+    field_name: &str,
+    new_val: &str,
+) -> Result<(), FormError> {
+    let target = get_form_fields(doc)
         .into_iter()
-        .find(|f| f.name == field_name)
+        .find(|field| field.name == field_name)
         .ok_or_else(|| FormError::FieldNotFound(field_name.to_string()))?;
 
     if target.read_only {
         return Err(FormError::ReadOnlyField(field_name.to_string()));
     }
 
-    let dict = doc.get_object_mut(target.object_id)?.as_dict_mut()?;
-    dict.set(
-        b"V",
-        Object::String(new_val.as_bytes().to_vec(), StringFormat::Literal),
-    );
+    match target.kind {
+        FieldKind::Checkbox | FieldKind::Radio => {
+            let selected_state = resolve_button_value(doc, &target, new_val)?;
+            doc.get_object_mut(target.object_id)?
+                .as_dict_mut()?
+                .set(b"V", Object::Name(selected_state.clone()));
+            set_widget_appearance_state(
+                doc,
+                target.object_id,
+                &selected_state,
+                &mut std::collections::HashSet::new(),
+            )?;
+        }
+        _ => {
+            doc.get_object_mut(target.object_id)?
+                .as_dict_mut()?
+                .set(
+                    b"V",
+                    Object::String(new_val.as_bytes().to_vec(), StringFormat::Literal),
+                );
+        }
+    }
 
     set_need_appearances(doc);
     Ok(())
@@ -490,6 +640,74 @@ mod tests {
             .get(b"V")
             .unwrap();
         assert_eq!(to_string_lossy(value).as_deref(), Some("default"));
+    }
+
+    #[test]
+    fn checkbox_values_use_pdf_names_and_update_appearance_state() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        let mut normal = lopdf::Dictionary::new();
+        normal.set(b"Off", Object::Null);
+        normal.set(b"Yes", Object::Null);
+        let mut appearance = lopdf::Dictionary::new();
+        appearance.set(b"N", Object::Dictionary(normal));
+
+        let mut field = lopdf::Dictionary::new();
+        field.set(b"T", Object::String(b"subscribe".to_vec(), StringFormat::Literal));
+        field.set(b"FT", Object::Name(b"Btn".to_vec()));
+        field.set(b"V", Object::Name(b"Off".to_vec()));
+        field.set(b"AS", Object::Name(b"Off".to_vec()));
+        field.set(b"AP", Object::Dictionary(appearance));
+        let field_id = doc.add_object(field);
+
+        let mut acro_form = lopdf::Dictionary::new();
+        acro_form.set(b"Fields", Object::Array(vec![Object::Reference(field_id)]));
+        let acro_id = doc.add_object(acro_form);
+        let mut catalog = lopdf::Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        catalog.set(b"AcroForm", Object::Reference(acro_id));
+        let catalog_id = doc.add_object(catalog);
+        doc.trailer.set(b"Root", Object::Reference(catalog_id));
+
+        set_field_value(&mut doc, "subscribe", "true").unwrap();
+        let field = doc.get_object(field_id).unwrap().as_dict().unwrap();
+        assert_eq!(field.get(b"V").unwrap().as_name().unwrap(), b"Yes");
+        assert_eq!(field.get(b"AS").unwrap().as_name().unwrap(), b"Yes");
+
+        set_field_value(&mut doc, "subscribe", "false").unwrap();
+        let field = doc.get_object(field_id).unwrap().as_dict().unwrap();
+        assert_eq!(field.get(b"V").unwrap().as_name().unwrap(), b"Off");
+        assert_eq!(field.get(b"AS").unwrap().as_name().unwrap(), b"Off");
+    }
+
+    #[test]
+    fn invalid_checkbox_value_does_not_partially_mutate_field() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        let mut normal = lopdf::Dictionary::new();
+        normal.set(b"Off", Object::Null);
+        normal.set(b"Yes", Object::Null);
+        let mut appearance = lopdf::Dictionary::new();
+        appearance.set(b"N", Object::Dictionary(normal));
+        let mut field = lopdf::Dictionary::new();
+        field.set(b"T", Object::String(b"flag".to_vec(), StringFormat::Literal));
+        field.set(b"FT", Object::Name(b"Btn".to_vec()));
+        field.set(b"V", Object::Name(b"Off".to_vec()));
+        field.set(b"AP", Object::Dictionary(appearance));
+        let field_id = doc.add_object(field);
+        let mut acro_form = lopdf::Dictionary::new();
+        acro_form.set(b"Fields", Object::Array(vec![Object::Reference(field_id)]));
+        let acro_id = doc.add_object(acro_form);
+        let mut catalog = lopdf::Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        catalog.set(b"AcroForm", Object::Reference(acro_id));
+        let catalog_id = doc.add_object(catalog);
+        doc.trailer.set(b"Root", Object::Reference(catalog_id));
+
+        assert!(matches!(
+            set_field_value(&mut doc, "flag", "not-a-button-state"),
+            Err(FormError::InvalidButtonValue { field, .. }) if field == "flag"
+        ));
+        let field = doc.get_object(field_id).unwrap().as_dict().unwrap();
+        assert_eq!(field.get(b"V").unwrap().as_name().unwrap(), b"Off");
     }
 
     #[test]
