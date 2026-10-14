@@ -122,7 +122,7 @@ fn test_text_command_rejects_page_zero() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("out of range"));
-} 
+}
 
 #[test]
 fn test_render_rejects_page_zero_without_timing_out() {
