@@ -215,8 +215,8 @@ impl ModalsComponent {
                                 .color(theme.active_accent())
                                 .strong(),
                         );
-                        ui.label(RichText::new("Primary Text").color(theme.text_primary()));
-                        ui.label(RichText::new("Secondary Text").color(theme.text_secondary()));
+                        ui.label(RichText::new("Primary Text").color(theme.text_primary_for(ctx.system_theme())));
+                        ui.label(RichText::new("Secondary Text").color(theme.text_secondary_for(ctx.system_theme())));
                     });
 
                     ui.add_space(18.0);
