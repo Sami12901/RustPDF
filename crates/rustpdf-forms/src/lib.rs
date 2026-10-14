@@ -275,12 +275,15 @@ pub fn export_form_data_json(doc: &LopdfDoc) -> Result<String, FormError> {
 /// Imports form field key-value pairs from a JSON map and populates matching fields.
 pub fn import_form_data_json(doc: &mut LopdfDoc, json_str: &str) -> Result<usize, FormError> {
     let map: std::collections::BTreeMap<String, String> = serde_json::from_str(json_str)?;
-    let mut updated = 0;
-    for (k, v) in map {
-        if set_field_value(doc, &k, &v).is_ok() {
-            updated += 1;
-        }
+    let mut working = doc.clone();
+
+    // Do not partially update a form when one key is missing or read-only.
+    for (name, value) in &map {
+        set_field_value(&mut working, name, value)?;
     }
+
+    let updated = map.len();
+    *doc = working;
     Ok(updated)
 }
 
@@ -358,6 +361,23 @@ mod tests {
     fn test_reset_all_fields_skips_read_only_fields() {
         let mut doc = make_text_form(true);
         assert_eq!(reset_all_fields(&mut doc).unwrap(), 0);
+        let field = get_form_fields(&doc).pop().unwrap();
+        assert_eq!(field.value.as_deref(), Some("Old"));
+    }
+
+
+    #[test]
+    fn test_import_is_atomic_when_any_field_is_invalid() {
+        let mut doc = make_text_form(false);
+        let result = import_form_data_json(
+            &mut doc,
+            r#"{"Name":"Changed","ZMissing":"No field"}"#,
+        );
+        assert_eq!(
+            result,
+            Err(FormError::FieldNotFound("ZMissing".to_string()))
+        );
+
         let field = get_form_fields(&doc).pop().unwrap();
         assert_eq!(field.value.as_deref(), Some("Old"));
     }
