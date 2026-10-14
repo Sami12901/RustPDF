@@ -122,4 +122,85 @@ fn test_text_command_rejects_page_zero() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("out of range"));
+
+#[test]
+fn test_extract_cli_preserves_requested_page_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("ordered-input.pdf");
+    let output = dir.path().join("ordered-output.pdf");
+
+    let mut pdf = Document::with_version("1.7");
+    rustpdf_organize::insert_blank_page(&mut pdf, 0, 100.0, 200.0).unwrap();
+    rustpdf_organize::insert_blank_page(&mut pdf, 1, 200.0, 300.0).unwrap();
+    rustpdf_organize::insert_blank_page(&mut pdf, 2, 300.0, 400.0).unwrap();
+    let mut bytes = Vec::new();
+    pdf.save_to(&mut bytes).unwrap();
+    std::fs::write(&input, bytes).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args([
+            "extract",
+            input.to_str().unwrap(),
+            "--pages",
+            "3,1",
+            "--out",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "CLI failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let extracted = Document::load(&output).unwrap();
+    let pages = extracted.get_pages();
+    assert_eq!(pages.len(), 2);
+    let first_box = extracted
+        .get_object(pages[&1])
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"MediaBox")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    let second_box = extracted
+        .get_object(pages[&2])
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"MediaBox")
+        .unwrap()
+        .as_array()
+        .unwrap();
+    assert_eq!(first_box[2].as_float().unwrap(), 300.0);
+    assert_eq!(second_box[2].as_float().unwrap(), 100.0);
+}
+
+#[test]
+fn test_render_cli_rejects_page_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("one-page.pdf");
+    let output = dir.path().join("page.png");
+    let bytes = create_blank_pdf(1, 612.0, 792.0, "Render Validation").unwrap();
+    std::fs::write(&input, bytes).unwrap();
+
+    let result = Command::new(env!("CARGO_BIN_EXE_rustpdf-cli"))
+        .args([
+            "render",
+            input.to_str().unwrap(),
+            "--page",
+            "0",
+            "--out",
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("Page numbers start at 1"));
+    assert!(!output.exists());
+}
+
 }
