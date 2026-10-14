@@ -1673,29 +1673,51 @@ impl App for RustPdfApp {
                                 );
                             }
                             crate::tools_panel::ToolAction::CompressPdf => {
-                                if let Some(s) = self.active_session_mut() {
-                                    match s.compress_document() {
-                                        Ok(res) => {
-                                            log::info!(
-                                                "Compressed PDF: saved {} bytes ({:.1}%), {} streams compressed, {} objects pruned",
-                                                res.saved_bytes,
-                                                res.saved_ratio() * 100.0,
-                                                res.streams_compressed,
-                                                res.objects_pruned
-                                            );
-                                            if let Some(path) = rfd::FileDialog::new()
-                                                .add_filter("Optimized PDF", &["pdf"])
-                                                .save_file()
-                                            {
-                                                if let Err(e) = s.save_to(&path) {
-                                                    log::error!("Failed to save compressed PDF: {e}");
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            log::error!("PDF compression failed: {e}");
+                                let source = self.active_session().map(|session| {
+                                    (
+                                        session.raw_bytes.as_ref().clone(),
+                                        session.display_name.clone(),
+                                    )
+                                });
+
+                                if let Some((source_bytes, display_name)) = source {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("Optimized PDF", &["pdf"])
+                                        .set_file_name(format!(
+                                            "{}-compressed.pdf",
+                                            display_name.trim_end_matches(".pdf")
+                                        ))
+                                        .save_file()
+                                    {
+                                        let result = (|| -> Result<
+                                            rustpdf_edit::CompressionResult,
+                                            String,
+                                        > {
+                                            let mut document = lopdf::Document::load_mem(&source_bytes)
+                                                .map_err(|error| format!("Could not parse source PDF: {error}"))?;
+                                            let stats = rustpdf_edit::compress_document(&mut document)
+                                                .map_err(|error| format!("Compression failed: {error}"))?;
+                                            let mut output = Vec::new();
+                                            document
+                                                .save_to(&mut output)
+                                                .map_err(|error| format!("Could not serialize compressed PDF: {error}"))?;
+                                            rustpdf_edit::save_atomic(&path, &output)
+                                                .map_err(|error| format!("Could not save compressed PDF: {error}"))?;
+                                            Ok(stats)
+                                        })();
+
+                                        match result {
+                                            Ok(stats) => self.notify_success(format!(
+                                                "Saved optimized PDF to {} ({} bytes saved, {:.1}%).",
+                                                path.display(),
+                                                stats.saved_bytes,
+                                                stats.saved_ratio() * 100.0
+                                            )),
+                                            Err(error) => self.notify_error(error),
                                         }
                                     }
+                                } else {
+                                    self.notify_error("Open a PDF before compressing it.");
                                 }
                             }
                             crate::tools_panel::ToolAction::PrepareForm
