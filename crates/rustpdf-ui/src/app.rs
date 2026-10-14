@@ -1517,53 +1517,63 @@ impl App for RustPdfApp {
                         .unwrap_or(0);
                     let first_selected = self.organizer_state.selected_pages.iter().next().copied();
 
-                    if let Some(session) =
+                    let operation_result = if let Some(session) =
                         self.active_tab.and_then(|idx| self.sessions.get_mut(idx))
                     {
                         let doc_id = session.id;
-                        match act {
+                        let result = match act {
                             OrganizerAction::Rotate(deg) => {
-                                let _ = session.rotate_pages(&selected_pages, deg);
+                                session.rotate_pages(&selected_pages, deg)
                             }
-                            OrganizerAction::Delete => {
-                                let _ = session.delete_pages(&selected_pages);
-                            }
+                            OrganizerAction::Delete => session.delete_pages(&selected_pages),
                             OrganizerAction::InsertBlank => {
-                                let _ = session.insert_blank_page(max_selected + 1, 612.0, 792.0);
+                                session.insert_blank_page(max_selected + 1, 612.0, 792.0)
                             }
-                            OrganizerAction::Duplicate => {
-                                if let Some(first) = first_selected {
-                                    let _ = session.duplicate_page(first);
-                                }
-                            }
+                            OrganizerAction::Duplicate => first_selected
+                                .map(|first| session.duplicate_page(first))
+                                .unwrap_or_else(|| {
+                                    Err(rustpdf_engine::EngineError::Organize(
+                                        rustpdf_organize::OrganizeError::IndexOutOfBounds(
+                                            max_selected,
+                                            session.page_count(),
+                                        ),
+                                    ))
+                                }),
                             OrganizerAction::MoveLeft => {
-                                if let Some(first) = first_selected {
-                                    if first > 0 {
-                                        let _ = session.move_page(first, first - 1);
-                                        self.organizer_state.select_single(first - 1);
-                                    }
+                                if let Some(first) = first_selected.filter(|first| *first > 0) {
+                                    session.move_page(first, first - 1)
+                                } else {
+                                    Ok(())
                                 }
                             }
                             OrganizerAction::MoveRight => {
-                                if let Some(first) = first_selected {
-                                    if first + 1 < session.page_count() {
-                                        let _ = session.move_page(first, first + 1);
-                                        self.organizer_state.select_single(first + 1);
-                                    }
+                                if let Some(first) =
+                                    first_selected.filter(|first| *first + 1 < session.page_count())
+                                {
+                                    session.move_page(first, first + 1)
+                                } else {
+                                    Ok(())
                                 }
                             }
-                            OrganizerAction::Undo => {
-                                let _ = session.undo();
-                            }
-                            OrganizerAction::Redo => {
-                                let _ = session.redo();
-                            }
-                        }
+                            OrganizerAction::Undo => session.undo().map(|_| ()),
+                            OrganizerAction::Redo => session.redo().map(|_| ()),
+                        };
                         self.organizer_state.invalidate_doc(doc_id);
                         self.viewer_state.invalidate_doc(doc_id);
+                        Some(result)
+                    } else {
+                        None
+                    };
+
+                    match operation_result {
+                        Some(Ok(())) => self.notify_success("Page operation completed."),
+                        Some(Err(error)) => self.notify_error(format!("Page operation failed: {error}")),
+                        None => self.notify_error("Open a PDF before using page organization tools."),
                     }
 
-                    if matches!(act, OrganizerAction::Delete) {
+                    if matches!(act, OrganizerAction::Delete)
+                        && matches!(operation_result, Some(Ok(())))
+                    {
                         self.organizer_state.selected_pages.clear();
                     }
                 }
