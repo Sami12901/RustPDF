@@ -1407,8 +1407,8 @@ impl ModalsComponent {
                                     .clicked()
                                 {
                                     if let Some(ref img_p) = state.edit_image_path {
-                                        if let Ok(bytes) = std::fs::read(img_p) {
-                                            match s.insert_image_to_page(
+                                        match std::fs::read(img_p) {
+                                            Ok(bytes) => match s.insert_image_to_page(
                                                 target_idx,
                                                 &bytes,
                                                 state.edit_image_x,
@@ -1430,6 +1430,12 @@ impl ModalsComponent {
                                                         true,
                                                     ));
                                                 }
+                                            },
+                                            Err(error) => {
+                                                action = Some(ModalAction::Notification(
+                                                    format!("Failed to read image '{}': {error}", img_p.display()),
+                                                    true,
+                                                ));
                                             }
                                         }
                                     }
