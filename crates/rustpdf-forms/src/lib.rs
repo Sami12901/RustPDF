@@ -13,6 +13,8 @@ pub enum FormError {
     Json(#[from] serde_json::Error),
     #[error("field '{0}' not found")]
     FieldNotFound(String),
+    #[error("field '{0}' is read-only")]
+    ReadOnlyField(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -145,14 +147,65 @@ pub fn set_field_value(
         .find(|f| f.name == field_name)
         .ok_or_else(|| FormError::FieldNotFound(field_name.to_string()))?;
 
-    if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(target.object_id) {
-        dict.set(
-            b"V",
-            Object::String(new_val.as_bytes().to_vec(), StringFormat::Literal),
-        );
+    if target.read_only {
+        return Err(FormError::ReadOnlyField(field_name.to_string()));
     }
 
-    // Set /NeedAppearances true in the document /AcroForm dictionary so conforming readers regenerate widget appearances
+    let dict = doc.get_object_mut(target.object_id)?.as_dict_mut()?;
+    dict.set(
+        b"V",
+        Object::String(new_val.as_bytes().to_vec(), StringFormat::Literal),
+    );
+
+    set_need_appearances(doc);
+    Ok(())
+}
+
+/// Resets a named form field to its default value (/DV), or removes /V if no default exists.
+pub fn reset_field(doc: &mut LopdfDoc, field_name: &str) -> Result<(), FormError> {
+    let fields = get_form_fields(doc);
+    let target = fields
+        .into_iter()
+        .find(|f| f.name == field_name)
+        .ok_or_else(|| FormError::FieldNotFound(field_name.to_string()))?;
+
+    if target.read_only {
+        return Err(FormError::ReadOnlyField(field_name.to_string()));
+    }
+
+    let dict = doc.get_object_mut(target.object_id)?.as_dict_mut()?;
+    if let Some(dv) = target.default_value {
+        dict.set(
+            b"V",
+            Object::String(dv.as_bytes().to_vec(), StringFormat::Literal),
+        );
+    } else {
+        dict.remove(b"V");
+    }
+
+    set_need_appearances(doc);
+    Ok(())
+}
+
+/// Resets all editable fields to their defaults as a single all-or-nothing update.
+/// Returns the number of fields reset. A failure leaves the original document untouched.
+pub fn reset_all_fields(doc: &mut LopdfDoc) -> Result<usize, FormError> {
+    let fields = get_form_fields(doc);
+    if let Some(field) = fields.iter().find(|field| field.read_only) {
+        return Err(FormError::ReadOnlyField(field.name.clone()));
+    }
+
+    let mut candidate = doc.clone();
+    let mut count = 0;
+    for field in &fields {
+        reset_field(&mut candidate, &field.name)?;
+        count += 1;
+    }
+    *doc = candidate;
+    Ok(count)
+}
+
+fn set_need_appearances(doc: &mut LopdfDoc) {
     let acro_form_id = doc
         .trailer
         .get(b"Root")
@@ -168,40 +221,6 @@ pub fn set_field_value(
             af_dict.set(b"NeedAppearances", Object::Boolean(true));
         }
     }
-
-    Ok(())
-}
-
-/// Resets a named form field to its default value (/DV), or removes /V if no default exists.
-pub fn reset_field(doc: &mut LopdfDoc, field_name: &str) -> Result<(), FormError> {
-    let fields = get_form_fields(doc);
-    let target = fields
-        .into_iter()
-        .find(|f| f.name == field_name)
-        .ok_or_else(|| FormError::FieldNotFound(field_name.to_string()))?;
-
-    if let Ok(Object::Dictionary(ref mut dict)) = doc.get_object_mut(target.object_id) {
-        if let Some(dv) = target.default_value {
-            dict.set(
-                b"V",
-                Object::String(dv.as_bytes().to_vec(), StringFormat::Literal),
-            );
-        } else {
-            dict.remove(b"V");
-        }
-    }
-
-    Ok(())
-}
-
-/// Resets all interactive form fields to their defaults. Returns count of reset fields.
-pub fn reset_all_fields(doc: &mut LopdfDoc) -> Result<usize, FormError> {
-    let fields = get_form_fields(doc);
-    let count = fields.len();
-    for f in &fields {
-        let _ = reset_field(doc, &f.name);
-    }
-    Ok(count)
 }
 
 /// Exports all form field names and their current values as a JSON map.
@@ -230,6 +249,69 @@ pub fn import_form_data_json(doc: &mut LopdfDoc, json_str: &str) -> Result<usize
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn make_form_doc(fields: &[(&str, &str, bool)]) -> (LopdfDoc, Vec<ObjectId>) {
+        let mut doc = LopdfDoc::with_version("1.7");
+        let mut field_refs = Vec::new();
+        let mut field_ids = Vec::new();
+
+        for (name, value, read_only) in fields {
+            let mut field = lopdf::Dictionary::new();
+            field.set(b"T", Object::String(name.as_bytes().to_vec(), StringFormat::Literal));
+            field.set(b"FT", Object::Name(b"Tx".to_vec()));
+            field.set(b"V", Object::String(value.as_bytes().to_vec(), StringFormat::Literal));
+            field.set(b"DV", Object::String(b"default".to_vec(), StringFormat::Literal));
+            field.set(b"Ff", Object::Integer(i64::from(*read_only)));
+            let id = doc.add_object(field);
+            field_ids.push(id);
+            field_refs.push(Object::Reference(id));
+        }
+
+        let mut acro_form = lopdf::Dictionary::new();
+        acro_form.set(b"Fields", Object::Array(field_refs));
+        let acro_id = doc.add_object(acro_form);
+
+        let mut catalog = lopdf::Dictionary::new();
+        catalog.set(b"Type", Object::Name(b"Catalog".to_vec()));
+        catalog.set(b"AcroForm", Object::Reference(acro_id));
+        let catalog_id = doc.add_object(catalog);
+        doc.trailer.set(b"Root", Object::Reference(catalog_id));
+
+        (doc, field_ids)
+    }
+
+    #[test]
+    fn read_only_fields_reject_updates() {
+        let (mut doc, ids) = make_form_doc(&[("locked", "original", true)]);
+        assert!(matches!(
+            set_field_value(&mut doc, "locked", "changed"),
+            Err(FormError::ReadOnlyField(name)) if name == "locked"
+        ));
+        let value = doc.get_object(ids[0]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        assert_eq!(to_string_lossy(value).as_deref(), Some("original"));
+    }
+
+    #[test]
+    fn reset_all_fields_is_atomic_when_a_field_is_read_only() {
+        let (mut doc, ids) =
+            make_form_doc(&[("editable", "original", false), ("locked", "protected", true)]);
+        assert!(matches!(
+            reset_all_fields(&mut doc),
+            Err(FormError::ReadOnlyField(name)) if name == "locked"
+        ));
+        let first = doc.get_object(ids[0]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        let second = doc.get_object(ids[1]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        assert_eq!(to_string_lossy(first).as_deref(), Some("original"));
+        assert_eq!(to_string_lossy(second).as_deref(), Some("protected"));
+    }
+
+    #[test]
+    fn reset_field_restores_default_value() {
+        let (mut doc, ids) = make_form_doc(&[("editable", "current", false)]);
+        reset_field(&mut doc, "editable").unwrap();
+        let value = doc.get_object(ids[0]).unwrap().as_dict().unwrap().get(b"V").unwrap();
+        assert_eq!(to_string_lossy(value).as_deref(), Some("default"));
+    }
 
     #[test]
     fn test_empty_form_fields() {
