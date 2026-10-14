@@ -80,20 +80,44 @@ impl DocumentSession {
         self.model.pages.len()
     }
 
-    /// Refreshes model and raw_bytes from current in-memory cos_doc.
+    /// Serializes and validates a candidate in-memory change before committing it.
+    ///
+    /// A failed serialization or model rebuild restores the prior document state and does
+    /// not add an undo entry. This keeps `cos_doc`, `raw_bytes`, `model`, and history
+    /// synchronized even when a malformed edit cannot be committed.
     fn commit_in_memory_change(
         &mut self,
         description: &str,
         old_bytes: Vec<u8>,
     ) -> Result<(), EngineError> {
-        let mut new_bytes = Vec::new();
-        self.cos_doc.save_to(&mut new_bytes)?;
+        let candidate = (|| -> Result<(Vec<u8>, CosDoc, DocumentModel), EngineError> {
+            let mut new_bytes = Vec::new();
+            self.cos_doc.save_to(&mut new_bytes)?;
+            let candidate_doc = CosDoc::load_mem(&new_bytes)?;
+            let candidate_model = DocumentModel::from_cos(&candidate_doc, new_bytes.len())?;
+            Ok((new_bytes, candidate_doc, candidate_model))
+        })();
 
-        self.history.push(description, old_bytes, new_bytes.clone());
-        self.raw_bytes = Arc::new(new_bytes);
-        self.model = DocumentModel::from_cos(&self.cos_doc, self.raw_bytes.len())?;
-        self.is_dirty = true;
-        Ok(())
+        match candidate {
+            Ok((new_bytes, candidate_doc, candidate_model)) => {
+                self.history
+                    .push(description, old_bytes, new_bytes.clone());
+                self.cos_doc = candidate_doc;
+                self.raw_bytes = Arc::new(new_bytes);
+                self.model = candidate_model;
+                self.is_dirty = true;
+                Ok(())
+            }
+            Err(error) => {
+                // The old bytes come from an already-open, previously validated document.
+                let restored_doc = CosDoc::load_mem(&old_bytes)?;
+                let restored_model = DocumentModel::from_cos(&restored_doc, old_bytes.len())?;
+                self.cos_doc = restored_doc;
+                self.raw_bytes = Arc::new(old_bytes);
+                self.model = restored_model;
+                Err(error)
+            }
+        }
     }
 
     /// Rotates specified pages by degrees.
