@@ -261,11 +261,9 @@ impl DocumentSession {
         Ok(())
     }
 
-    /// Removes password protection and restrictions.
+    /// Refuses to remove encryption metadata until safe PDF decryption is implemented.
     pub fn remove_protection(&mut self) -> Result<(), EngineError> {
-        let old_bytes = (*self.raw_bytes).clone();
-        rustpdf_cos::security::remove_protection(self.cos_doc.inner_mut());
-        self.commit_in_memory_change("Remove protection", old_bytes)?;
+        rustpdf_cos::security::remove_protection(self.cos_doc.inner_mut())?;
         Ok(())
     }
 
