@@ -219,7 +219,7 @@ fn escape_rtf(s: &str) -> String {
                 for unit in c.encode_utf16(&mut units).iter() {
                     out.push_str(&format!("\\u{}?", *unit as i16));
                 }
-            },
+            }
         }
     }
     out
