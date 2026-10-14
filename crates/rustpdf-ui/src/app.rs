@@ -228,23 +228,28 @@ impl RustPdfApp {
                 self.viewer_state.new_text_placement = None;
             }
             Err(e) => {
-                log::error!("Failed to open file: {e}");
+                self.notify_error(format!("Failed to open PDF: {e}"));
             }
         }
     }
 
     pub fn new_blank_document(&mut self) {
-        if let Ok(bytes) = rustpdf_export::create_blank_pdf(1, 612.0, 792.0, "Untitled") {
-            if let Ok(session) = DocumentSession::open_mem(bytes, None) {
-                let doc_id = session.id;
-                self.sessions.push(session);
-                self.active_tab = Some(self.sessions.len() - 1);
-                self.active_workspace = ActiveWorkspace::Viewer;
-                self.viewer_state.active_doc_id = Some(doc_id);
-                self.viewer_state.current_page = 0;
-                self.viewer_state.selected_edit = None;
-                self.viewer_state.new_text_placement = None;
-            }
+        match rustpdf_export::create_blank_pdf(1, 612.0, 792.0, "Untitled") {
+            Ok(bytes) => match DocumentSession::open_mem(bytes, None) {
+                Ok(session) => {
+                    let doc_id = session.id;
+                    self.sessions.push(session);
+                    self.active_tab = Some(self.sessions.len() - 1);
+                    self.active_workspace = ActiveWorkspace::Viewer;
+                    self.viewer_state.active_doc_id = Some(doc_id);
+                    self.viewer_state.current_page = 0;
+                    self.viewer_state.selected_edit = None;
+                    self.viewer_state.new_text_placement = None;
+                    self.notify_success("Created a new blank PDF.");
+                }
+                Err(error) => self.notify_error(format!("Failed to create a blank PDF: {error}")),
+            },
+            Err(error) => self.notify_error(format!("Failed to generate a blank PDF: {error}")),
         }
     }
 
@@ -680,18 +685,16 @@ impl App for RustPdfApp {
                         .add_enabled(can_undo, Button::new("Undo (Ctrl+Z)"))
                         .clicked()
                     {
-                        if let Some(s) = self.active_session_mut() {
-                            let _ = s.undo();
-                        }
+                        let result = self.active_session_mut().map(|session| session.undo());
+                        self.report_history_operation(result, "Undo");
                     }
 
                     if ui
                         .add_enabled(can_redo, Button::new("Redo (Ctrl+Y)"))
                         .clicked()
                     {
-                        if let Some(s) = self.active_session_mut() {
-                            let _ = s.redo();
-                        }
+                        let result = self.active_session_mut().map(|session| session.redo());
+                        self.report_history_operation(result, "Redo");
                     }
                 });
 
@@ -1124,21 +1127,33 @@ impl App for RustPdfApp {
                             }
                             crate::tools_panel::ToolAction::RotatePages => {
                                 let curr = self.viewer_state.current_page;
-                                if let Some(s) = self.active_session_mut() {
-                                    let _ = s.rotate_pages(&[curr], 90);
-                                }
+                                let result = self
+                                    .active_session_mut()
+                                    .map(|session| session.rotate_pages(&[curr], 90));
+                                self.report_document_operation(
+                                    result,
+                                    format!("Rotated page {}.", curr + 1),
+                                );
                             }
                             crate::tools_panel::ToolAction::InsertPages => {
                                 let curr = self.viewer_state.current_page;
-                                if let Some(s) = self.active_session_mut() {
-                                    let _ = s.insert_blank_page(curr + 1, 595.0, 842.0);
-                                }
+                                let result = self
+                                    .active_session_mut()
+                                    .map(|session| session.insert_blank_page(curr + 1, 595.0, 842.0));
+                                self.report_document_operation(
+                                    result,
+                                    format!("Inserted a blank page after page {}.", curr + 1),
+                                );
                             }
                             crate::tools_panel::ToolAction::DeletePages => {
                                 let curr = self.viewer_state.current_page;
-                                if let Some(s) = self.active_session_mut() {
-                                    let _ = s.delete_pages(&[curr]);
-                                }
+                                let result = self
+                                    .active_session_mut()
+                                    .map(|session| session.delete_pages(&[curr]));
+                                self.report_document_operation(
+                                    result,
+                                    format!("Deleted page {}.", curr + 1),
+                                );
                             }
                             crate::tools_panel::ToolAction::ExtractPages => {
                                 let selected_pages: Vec<usize> =
