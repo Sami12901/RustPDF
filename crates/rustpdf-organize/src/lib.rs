@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum OrganizeError {
     #[error("document must retain at least one page")]
     CannotRemoveAllPages,
+    #[error("at least one page must be selected for extraction")]
+    NoPagesSelected,
     #[error("page index {0} out of bounds (document has {1} pages)")]
     IndexOutOfBounds(usize, usize),
     #[error("invalid rotation {0}: degrees must be a multiple of 90")]
@@ -341,6 +343,41 @@ pub fn combine_documents(inputs: &[Vec<u8>]) -> Result<Vec<u8>, OrganizeError> {
     Ok(out)
 }
 
+/// Extracts the selected 0-based page indices into a new PDF, preserving caller order.
+pub fn extract_pages(doc_bytes: &[u8], selected_indices: &[usize]) -> Result<Vec<u8>, OrganizeError> {
+    if selected_indices.is_empty() {
+        return Err(OrganizeError::NoPagesSelected);
+    }
+
+    let mut doc = LopdfDoc::load_mem(doc_bytes)?;
+    let total_pages = doc.get_pages().len();
+    let mut seen = std::collections::HashSet::with_capacity(selected_indices.len());
+
+    for &index in selected_indices {
+        if index >= total_pages {
+            return Err(OrganizeError::IndexOutOfBounds(index, total_pages));
+        }
+        if !seen.insert(index) {
+            return Err(OrganizeError::DuplicatePageIndex(index));
+        }
+    }
+
+    let mut order = selected_indices.to_vec();
+    order.extend((0..total_pages).filter(|index| !seen.contains(index)));
+    reorder_pages(&mut doc, &order)?;
+
+    let pages_to_delete: Vec<u32> = (selected_indices.len()..total_pages)
+        .map(|index| (index + 1) as u32)
+        .collect();
+    if !pages_to_delete.is_empty() {
+        doc.delete_pages(&pages_to_delete);
+    }
+
+    let mut output = Vec::new();
+    doc.save_to(&mut output)?;
+    Ok(output)
+}
+
 /// Specification for splitting a document.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SplitRule {
@@ -606,6 +643,66 @@ mod tests {
         let kids = root_pages.get(b"Kids").unwrap().as_array().unwrap();
         assert_eq!(kids.len(), 2);
         assert!(kids.iter().all(|kid| matches!(kid, Object::Reference(id) if flattened_pages.contains(id))));
+    }
+
+
+    #[test]
+    fn test_extract_pages_preserves_requested_order() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 100.0, 200.0).unwrap();
+        insert_blank_page(&mut doc, 1, 200.0, 300.0).unwrap();
+        insert_blank_page(&mut doc, 2, 300.0, 400.0).unwrap();
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+
+        let extracted = extract_pages(&bytes, &[2, 0]).unwrap();
+        let extracted_doc = LopdfDoc::load_mem(&extracted).unwrap();
+        let pages = extracted_doc.get_pages();
+        assert_eq!(pages.len(), 2);
+        let first_id = pages[&1];
+        let second_id = pages[&2];
+        let first_box = extracted_doc
+            .get_object(first_id)
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"MediaBox")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        let second_box = extracted_doc
+            .get_object(second_id)
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"MediaBox")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(first_box[2].as_float().unwrap(), 300.0);
+        assert_eq!(second_box[2].as_float().unwrap(), 100.0);
+    }
+
+    #[test]
+    fn test_extract_pages_rejects_invalid_or_duplicate_selection() {
+        let mut doc = LopdfDoc::with_version("1.7");
+        insert_blank_page(&mut doc, 0, 612.0, 792.0).unwrap();
+        insert_blank_page(&mut doc, 1, 612.0, 792.0).unwrap();
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+
+        assert!(matches!(
+            extract_pages(&bytes, &[]),
+            Err(OrganizeError::NoPagesSelected)
+        ));
+        assert!(matches!(
+            extract_pages(&bytes, &[0, 0]),
+            Err(OrganizeError::DuplicatePageIndex(0))
+        ));
+        assert!(matches!(
+            extract_pages(&bytes, &[2]),
+            Err(OrganizeError::IndexOutOfBounds(2, 2))
+        ));
     }
 
 }
