@@ -398,7 +398,9 @@ mod tests {
         assert!(try_export_word_doc(&doc, "Fallible Export Test")
             .unwrap()
             .starts_with("{\\rtf1"));
-        assert!(try_export_csv_doc(&doc).unwrap().starts_with("Page,Line,Text"));
+        assert!(try_export_csv_doc(&doc)
+            .unwrap()
+            .starts_with("Page,Line,Text"));
     }
 
     #[test]
