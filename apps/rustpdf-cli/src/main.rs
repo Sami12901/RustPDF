@@ -253,7 +253,11 @@ fn main() -> Result<()> {
                 .with_context(|| format!("Failed to extract pages from '{}'", input.display()))?;
             rustpdf_edit::save_atomic(&out, &extracted)
                 .with_context(|| format!("Failed to save extracted PDF to '{}'", out.display()))?;
-            println!("Extracted {} page(s) into '{}'", selected.len(), out.display());
+            println!(
+                "Extracted {} page(s) into '{}'",
+                selected.len(),
+                out.display()
+            );
         }
 
         Commands::Split {
