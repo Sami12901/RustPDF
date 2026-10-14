@@ -1591,33 +1591,70 @@ impl App for RustPdfApp {
         if let Some(act) = modal_action {
             match act {
                 ModalAction::Combine(inputs) => {
-                    let mut buffers = Vec::new();
-                    for p in inputs {
-                        if let Ok(b) = std::fs::read(&p) {
-                            buffers.push(b);
+                    let result = (|| -> Result<DocumentSession, String> {
+                        if inputs.is_empty() {
+                            return Err("Select at least one PDF to combine.".to_string());
                         }
-                    }
-                    if let Ok(merged) = rustpdf_organize::combine_documents(&buffers) {
-                        if let Ok(session) = DocumentSession::open_mem(merged, None) {
+
+                        let mut buffers = Vec::with_capacity(inputs.len());
+                        for path in &inputs {
+                            let bytes = std::fs::read(path).map_err(|error| {
+                                format!("Failed to read '{}': {error}", path.display())
+                            })?;
+                            buffers.push(bytes);
+                        }
+
+                        let merged = rustpdf_organize::combine_documents(&buffers)
+                            .map_err(|error| format!("Failed to combine PDFs: {error}"))?;
+                        DocumentSession::open_mem(merged, None)
+                            .map_err(|error| format!("Failed to open combined PDF: {error}"))
+                    })();
+
+                    match result {
+                        Ok(session) => {
                             self.sessions.push(session);
                             self.active_tab = Some(self.sessions.len() - 1);
                             self.active_workspace = ActiveWorkspace::Viewer;
+                            self.notify_success("PDF files combined successfully.");
                         }
+                        Err(error) => self.notify_error(error),
                     }
                 }
                 ModalAction::Split(n, out_dir) => {
-                    if let Some(session) = self.active_session_mut() {
-                        if let Ok(chunks) = rustpdf_organize::split_document(
+                    let result = (|| -> Result<usize, String> {
+                        let session = self
+                            .active_session_mut()
+                            .ok_or_else(|| "Open a PDF before splitting it.".to_string())?;
+
+                        let chunks = rustpdf_organize::split_document(
                             &session.raw_bytes,
                             rustpdf_organize::SplitRule::EveryN(n),
-                        ) {
-                            let _ = std::fs::create_dir_all(&out_dir);
-                            for (i, chunk) in chunks.iter().enumerate() {
-                                let part_path =
-                                    out_dir.join(format!("split_part_{:03}.pdf", i + 1));
-                                let _ = rustpdf_edit::save_atomic(&part_path, chunk);
-                            }
+                        )
+                        .map_err(|error| format!("Failed to split PDF: {error}"))?;
+
+                        std::fs::create_dir_all(&out_dir).map_err(|error| {
+                            format!("Failed to create output directory '{}': {error}", out_dir.display())
+                        })?;
+
+                        for (i, chunk) in chunks.iter().enumerate() {
+                            let part_path = out_dir.join(format!("split_part_{:03}.pdf", i + 1));
+                            rustpdf_edit::save_atomic(&part_path, chunk).map_err(|error| {
+                                format!(
+                                    "Failed to save '{}'. Earlier parts may already have been written: {error}",
+                                    part_path.display()
+                                )
+                            })?;
                         }
+
+                        Ok(chunks.len())
+                    })();
+
+                    match result {
+                        Ok(count) => self.notify_success(format!(
+                            "Split completed: {count} file(s) saved to '{}'.",
+                            out_dir.display()
+                        )),
+                        Err(error) => self.notify_error(error),
                     }
                 }
                 ModalAction::ExecuteCommand(cmd) => match cmd.as_str() {
