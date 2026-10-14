@@ -7,7 +7,7 @@ This document covers prerequisites, build commands, and platform targets for **R
 ## Prerequisites
 
 1. **Rust Toolchain**:
-   - Rust 1.88+ (recommended: stable 1.98+).
+   - Rust 1.95+ (recommended: the latest stable toolchain).
    - Check with `rustc --version` and `cargo --version`.
    - Install or update via [rustup.rs](https://rustup.rs):
      ```bash
