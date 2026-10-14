@@ -10,7 +10,7 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(
     name = "rustpdf-cli",
-    version = "0.1.0",
+    version,
     about = "RustPdf Command-Line PDF Workbench"
 )]
 struct Cli {
@@ -153,6 +153,18 @@ fn main() -> Result<()> {
         } => {
             let bytes = fs::read(&input)
                 .with_context(|| format!("Failed to read '{}'", input.display()))?;
+            if page == 0 {
+                anyhow::bail!("Page numbers start at 1");
+            }
+            if !scale.is_finite() || scale <= 0.0 {
+                anyhow::bail!("Scale must be a finite number greater than zero");
+            }
+            let parsed = lopdf::Document::load_mem(&bytes)
+                .with_context(|| format!("Failed to parse '{}'", input.display()))?;
+            let page_count = parsed.get_pages().len();
+            if page > page_count {
+                anyhow::bail!("Page {} out of range (1..{})", page, page_count);
+            }
 
             let pool = rustpdf_render::RenderPool::new(1);
             let req = rustpdf_render::RenderRequest {
@@ -180,7 +192,7 @@ fn main() -> Result<()> {
             let img = image::RgbaImage::from_raw(page_data.width, page_data.height, page_data.rgba)
                 .context("Failed to construct RGBA image buffer")?;
 
-            if let Some(parent) = out.parent() {
+            if let Some(parent) = out.parent().filter(|path| !path.as_os_str().is_empty()) {
                 if !parent.exists() {
                     fs::create_dir_all(parent)?;
                 }
@@ -215,35 +227,33 @@ fn main() -> Result<()> {
         }
 
         Commands::Extract { input, pages, out } => {
-            let bytes = fs::read(&input)?;
-            let doc = lopdf::Document::load_mem(&bytes)?;
+            let bytes = fs::read(&input)
+                .with_context(|| format!("Failed to read '{}'", input.display()))?;
+            let doc = lopdf::Document::load_mem(&bytes)
+                .with_context(|| format!("Failed to parse '{}'", input.display()))?;
             let total = doc.get_pages().len();
 
-            let to_keep: Vec<usize> = pages
-                .into_iter()
-                .filter(|&p| p >= 1 && p <= total)
-                .map(|p| p - 1)
-                .collect();
-
-            if to_keep.is_empty() {
-                anyhow::bail!("No valid pages to extract");
+            if pages.is_empty() {
+                anyhow::bail!("Select at least one page to extract");
             }
 
-            let mut new_doc = doc.clone();
-            let to_delete: Vec<u32> = (0..total)
-                .filter(|i| !to_keep.contains(i))
-                .map(|i| (i + 1) as u32)
-                .collect();
-
-            if to_delete.len() < total {
-                new_doc.delete_pages(&to_delete);
+            let mut seen = std::collections::HashSet::with_capacity(pages.len());
+            let mut selected = Vec::with_capacity(pages.len());
+            for page in pages {
+                if page == 0 || page > total {
+                    anyhow::bail!("Page {} out of range (1..{})", page, total);
+                }
+                if !seen.insert(page) {
+                    anyhow::bail!("Page {} was selected more than once", page);
+                }
+                selected.push(page - 1);
             }
 
-            let mut out_bytes = Vec::new();
-            new_doc.save_to(&mut out_bytes)?;
-
-            rustpdf_edit::save_atomic(&out, &out_bytes)?;
-            println!("Extracted {} pages into '{}'", to_keep.len(), out.display());
+            let extracted = rustpdf_organize::extract_pages(&bytes, &selected)
+                .with_context(|| format!("Failed to extract pages from '{}'", input.display()))?;
+            rustpdf_edit::save_atomic(&out, &extracted)
+                .with_context(|| format!("Failed to save extracted PDF to '{}'", out.display()))?;
+            println!("Extracted {} page(s) into '{}'", selected.len(), out.display());
         }
 
         Commands::Split {
