@@ -85,6 +85,13 @@ Whether you need to merge contracts, reorganize massive scans, edit on-page text
 
 ---
 
+## Feature scope and security limits
+
+RustPDF is inspired by offline PDF workbenches such as [PDF Craft](https://github.com/Satan2049/pdf-craft), but it is **not yet feature-for-feature equivalent**. OCR, genuine destructive redaction, PDF password encryption/decryption, certificate signing, and visual file comparison are unavailable in this release. Their UI actions report the limitation rather than silently claiming success.
+
+Do not use RustPDF to password-protect or decrypt sensitive PDFs until its cryptographic security handler is implemented. Removing an encryption dictionary without decrypting the PDF's streams and strings is unsafe, so RustPDF deliberately refuses that operation.
+
+---
 
 ## 📥 Downloads & Installation
 
