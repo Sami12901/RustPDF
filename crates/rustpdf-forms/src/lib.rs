@@ -90,10 +90,7 @@ fn field_children(doc: &LopdfDoc, field_dict: &lopdf::Dictionary) -> Vec<ObjectI
         .collect()
 }
 
-fn resolved_dict<'a>(
-    doc: &'a LopdfDoc,
-    object: &'a Object,
-) -> Option<&'a lopdf::Dictionary> {
+fn resolved_dict<'a>(doc: &'a LopdfDoc, object: &'a Object) -> Option<&'a lopdf::Dictionary> {
     match object {
         Object::Dictionary(dict) => Some(dict),
         Object::Reference(id) => doc.get_object(*id).ok()?.as_dict().ok(),
@@ -101,19 +98,11 @@ fn resolved_dict<'a>(
     }
 }
 
-fn normal_appearance_states(
-    doc: &LopdfDoc,
-    field_id: ObjectId,
-) -> Option<Vec<Vec<u8>>> {
+fn normal_appearance_states(doc: &LopdfDoc, field_id: ObjectId) -> Option<Vec<Vec<u8>>> {
     let field = doc.get_object(field_id).ok()?.as_dict().ok()?;
     let ap = resolved_dict(doc, field.get(b"AP").ok()?)?;
     let normal = resolved_dict(doc, ap.get(b"N").ok()?)?;
-    Some(
-        normal
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect(),
-    )
+    Some(normal.iter().map(|(name, _)| name.clone()).collect())
 }
 
 fn collect_button_states(
@@ -165,15 +154,15 @@ fn resolve_button_value(
     }
 
     let states = button_states_for_field(doc, field.object_id);
-    if let Some(state) = states.iter().find(|state| state.as_slice() == trimmed.as_bytes()) {
+    if let Some(state) = states
+        .iter()
+        .find(|state| state.as_slice() == trimmed.as_bytes())
+    {
         return Ok(state.clone());
     }
 
     if matches!(normalized.as_str(), "on" | "true" | "yes" | "1") {
-        return Ok(states
-            .first()
-            .cloned()
-            .unwrap_or_else(|| b"Yes".to_vec()));
+        return Ok(states.first().cloned().unwrap_or_else(|| b"Yes".to_vec()));
     }
 
     Err(FormError::InvalidButtonValue {
@@ -198,7 +187,9 @@ fn set_widget_appearance_state(
 
     if let Some(states) = local_states {
         let state = if selected_state == b"Off"
-            || states.iter().any(|value| value.as_slice() == selected_state)
+            || states
+                .iter()
+                .any(|value| value.as_slice() == selected_state)
         {
             selected_state
         } else {
@@ -430,12 +421,10 @@ fn set_field_value_in_place(
             )?;
         }
         _ => {
-            doc.get_object_mut(target.object_id)?
-                .as_dict_mut()?
-                .set(
-                    b"V",
-                    Object::String(new_val.as_bytes().to_vec(), StringFormat::Literal),
-                );
+            doc.get_object_mut(target.object_id)?.as_dict_mut()?.set(
+                b"V",
+                Object::String(new_val.as_bytes().to_vec(), StringFormat::Literal),
+            );
         }
     }
 
@@ -665,7 +654,10 @@ mod tests {
         appearance.set(b"N", Object::Dictionary(normal));
 
         let mut field = lopdf::Dictionary::new();
-        field.set(b"T", Object::String(b"subscribe".to_vec(), StringFormat::Literal));
+        field.set(
+            b"T",
+            Object::String(b"subscribe".to_vec(), StringFormat::Literal),
+        );
         field.set(b"FT", Object::Name(b"Btn".to_vec()));
         field.set(b"V", Object::Name(b"Off".to_vec()));
         field.set(b"AS", Object::Name(b"Off".to_vec()));
@@ -701,7 +693,10 @@ mod tests {
         let mut appearance = lopdf::Dictionary::new();
         appearance.set(b"N", Object::Dictionary(normal));
         let mut field = lopdf::Dictionary::new();
-        field.set(b"T", Object::String(b"flag".to_vec(), StringFormat::Literal));
+        field.set(
+            b"T",
+            Object::String(b"flag".to_vec(), StringFormat::Literal),
+        );
         field.set(b"FT", Object::Name(b"Btn".to_vec()));
         field.set(b"V", Object::Name(b"Off".to_vec()));
         field.set(b"AP", Object::Dictionary(appearance));
