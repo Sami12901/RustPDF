@@ -1,6 +1,6 @@
 //! rustpdf-forms — Interactive PDF AcroForm field inspection, value editing, and resetting.
 
-use lopdf::{Document as LopdfDoc, Object, StringFormat};
+use lopdf::{Document as LopdfDoc, Object, ObjectId, StringFormat};
 use rustpdf_cos::helpers::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -261,7 +261,7 @@ mod tests {
             field.set(b"FT", Object::Name(b"Tx".to_vec()));
             field.set(b"V", Object::String(value.as_bytes().to_vec(), StringFormat::Literal));
             field.set(b"DV", Object::String(b"default".to_vec(), StringFormat::Literal));
-            field.set(b"Ff", Object::Integer(i64::from(*read_only)));
+            field.set(b"Ff", Object::Integer(if *read_only { 1 } else { 0 }));
             let id = doc.add_object(field);
             field_ids.push(id);
             field_refs.push(Object::Reference(id));
